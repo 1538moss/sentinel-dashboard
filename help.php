@@ -196,6 +196,19 @@ kbd{
   </section>
 
   <section>
+    <h2>Neste bilde</h2>
+    <div class="row">
+      <div class="key">Header-tekst</div>
+      <div class="desc">
+        Øverst til høyre vises en estimert dato for neste satellittbilde.
+        Hvis et nyere bilde allerede er tilgjengelig for nedlasting, vises det i
+        <span class="cloud-good">grønt</span> med dato og skydekke.
+        Estimatet baserer seg på gjennomsnittlig intervall mellom de siste bildene.
+      </div>
+    </div>
+  </section>
+
+  <section>
     <h2>Filtrering</h2>
     <div class="row">
       <div class="key">☁ &lt;50%-knappen</div>

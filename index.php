@@ -60,14 +60,14 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text)}
 .fetch-btn:hover{background:var(--accent-glow);border-color:var(--accent)}
 .fetch-btn:disabled{opacity:.4;cursor:not-allowed}
 .filter-btn{
-  background:transparent;border:1px solid var(--border);color:var(--muted);
+  background:transparent;border:1px solid var(--border);color:var(--accent);
   padding:5px 12px;font-size:10px;letter-spacing:.2em;text-transform:uppercase;
   font-family:var(--font-mono);cursor:pointer;transition:all .2s;
 }
 .filter-btn:hover{background:var(--accent-glow);border-color:var(--accent);color:var(--accent)}
 .filter-btn.active{background:rgba(52,211,153,.12);border-color:#34d399;color:#34d399}
 .help-btn{
-  background:transparent;border:1px solid var(--border);color:var(--muted);
+  background:transparent;border:1px solid var(--border);color:var(--accent);
   width:28px;height:28px;display:flex;align-items:center;justify-content:center;
   font-family:var(--font-mono);font-size:12px;text-decoration:none;
   transition:all .2s;
@@ -293,6 +293,17 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text)}
 }
 .tl-item.active .tl-label{color:var(--accent)}
 
+/* ── MOBILE ── */
+@media(max-width:640px){
+  .hdr{padding:10px 12px}
+  .hdr-logo{font-size:9px;letter-spacing:.2em}
+  .hdr-center{display:none}
+  .next-badge{display:none}
+  #counter{display:none}
+  .hdr-right{gap:8px}
+  .fetch-btn,.filter-btn{padding:5px 8px;font-size:9px;letter-spacing:.1em}
+}
+
 /* Notification */
 .notif{
   position:fixed;top:70px;right:20px;z-index:50;
@@ -517,10 +528,13 @@ function buildTimeline() {
     item.onclick = () => goTo(i);
 
     const thumb = document.createElement('img');
-    thumb.src   = `images/${img.filename}`;
-    thumb.alt   = img.date;
+    thumb.src     = img.thumbnail ? `images/thumbs/${img.thumbnail}` : `images/${img.filename}`;
+    thumb.alt     = img.date;
     thumb.loading = 'lazy';
-    thumb.onerror = () => { thumb.style.display='none'; };
+    thumb.onerror = () => {
+      if (img.filename) thumb.src = `images/${img.filename}`;
+      else thumb.style.display = 'none';
+    };
 
     const label = document.createElement('div');
     label.className = 'tl-label';

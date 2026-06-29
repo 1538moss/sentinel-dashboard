@@ -44,6 +44,7 @@ return [
     'image_height'    => 1024,
 
     'images_dir'    => __DIR__ . '/images/',
+    'thumbs_dir'    => __DIR__ . '/images/thumbs/',
     'data_dir'      => __DIR__ . '/data/',
     'metadata_file' => __DIR__ . '/data/images.json',
 ];

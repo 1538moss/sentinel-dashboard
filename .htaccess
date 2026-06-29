@@ -1,5 +1,5 @@
 # Beskytt config og data mot direkte henting
-<FilesMatch "^(config|fetch)\.php$">
+<FilesMatch "^(config|fetch|cleanup|generate_thumbs)\.php$">
     Order deny,allow
     Deny from all
 </FilesMatch>

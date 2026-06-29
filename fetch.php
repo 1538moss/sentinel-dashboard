@@ -24,9 +24,25 @@ class SentinelFetcher
 
     private function ensureDirectories(): void
     {
-        foreach ([$this->config['images_dir'], $this->config['data_dir']] as $dir) {
+        foreach ([$this->config['images_dir'], $this->config['thumbs_dir'], $this->config['data_dir']] as $dir) {
             if (!is_dir($dir)) mkdir($dir, 0755, true);
         }
+    }
+
+    // ── Thumbnail ─────────────────────────────────────────────────────────────
+    public function generateThumb(string $srcPath, string $thumbPath): bool
+    {
+        if (!function_exists('imagecreatefrompng')) return false;
+        $src = @imagecreatefrompng($srcPath);
+        if (!$src) return false;
+
+        $size  = 136;
+        $thumb = imagecreatetruecolor($size, $size);
+        imagecopyresampled($thumb, $src, 0, 0, 0, 0, $size, $size, imagesx($src), imagesy($src));
+        imagejpeg($thumb, $thumbPath, 78);
+        imagedestroy($src);
+        imagedestroy($thumb);
+        return true;
     }
 
     // ── Auth ──────────────────────────────────────────────────────────────────
@@ -293,11 +309,16 @@ JS;
                 $imageData = $this->fetchImage($date);
                 file_put_contents($savePath, $imageData);
 
+                $thumbFile = $date . '.jpg';
+                $thumbPath = $this->config['thumbs_dir'] . $thumbFile;
+                $this->generateThumb($savePath, $thumbPath);
+
                 $metadata[] = [
                     'id'          => $date,
                     'date'        => $date,
                     'cloud_cover' => $cloud,
                     'filename'    => $filename,
+                    'thumbnail'   => file_exists($thumbPath) ? $thumbFile : null,
                     'fetched_at'  => date('c'),
                 ];
 
