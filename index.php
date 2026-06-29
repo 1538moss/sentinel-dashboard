@@ -1,0 +1,744 @@
+<?php $cfg = require __DIR__ . '/config.php'; ?>
+<!DOCTYPE html>
+<html lang="no">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sentinel Dashboard</title>
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+
+:root{
+  --bg:#07070f;
+  --surface:rgba(255,255,255,.04);
+  --border:rgba(100,180,255,.15);
+  --accent:#38bdf8;
+  --accent-glow:rgba(56,189,248,.25);
+  --text:#cdd9e8;
+  --muted:rgba(205,217,232,.45);
+  --danger:#f87171;
+  --overlay-bg:linear-gradient(to top,rgba(7,7,15,.97) 0%,rgba(7,7,15,.7) 60%,transparent 100%);
+  --font-mono:'SF Mono','Fira Code','Cascadia Code',monospace;
+  --font-ui:system-ui,-apple-system,sans-serif;
+}
+
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text)}
+
+/* ── HEADER ── */
+.hdr{
+  position:fixed;top:0;left:0;right:0;z-index:20;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:14px 24px;
+  background:rgba(7,7,15,.88);
+  border-bottom:1px solid var(--border);
+  backdrop-filter:blur(8px);
+  -webkit-backdrop-filter:blur(8px);
+}
+.hdr-logo{
+  display:flex;align-items:center;gap:10px;
+  font-family:var(--font-mono);font-size:11px;font-weight:600;
+  letter-spacing:.35em;text-transform:uppercase;color:var(--accent);
+}
+.pulse{
+  width:7px;height:7px;border-radius:50%;background:var(--accent);
+  box-shadow:0 0 6px var(--accent);
+  animation:pulse 2s ease-in-out infinite;
+}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.85)}}
+
+.hdr-center{font-family:var(--font-mono);font-size:11px;color:var(--muted);letter-spacing:.1em}
+.hdr-right{
+  display:flex;align-items:center;gap:16px;
+  font-family:var(--font-mono);font-size:11px;color:var(--muted);letter-spacing:.1em;
+}
+#counter{color:var(--text)}
+.fetch-btn{
+  background:transparent;border:1px solid var(--border);color:var(--accent);
+  padding:5px 12px;font-size:10px;letter-spacing:.2em;text-transform:uppercase;
+  font-family:var(--font-mono);cursor:pointer;transition:all .2s;
+}
+.fetch-btn:hover{background:var(--accent-glow);border-color:var(--accent)}
+.fetch-btn:disabled{opacity:.4;cursor:not-allowed}
+.filter-btn{
+  background:transparent;border:1px solid var(--border);color:var(--muted);
+  padding:5px 12px;font-size:10px;letter-spacing:.2em;text-transform:uppercase;
+  font-family:var(--font-mono);cursor:pointer;transition:all .2s;
+}
+.filter-btn:hover{background:var(--accent-glow);border-color:var(--accent);color:var(--accent)}
+.filter-btn.active{background:rgba(52,211,153,.12);border-color:#34d399;color:#34d399}
+.help-btn{
+  background:transparent;border:1px solid var(--border);color:var(--muted);
+  width:28px;height:28px;display:flex;align-items:center;justify-content:center;
+  font-family:var(--font-mono);font-size:12px;text-decoration:none;
+  transition:all .2s;
+}
+.help-btn:hover{background:var(--accent-glow);border-color:var(--accent);color:var(--accent)}
+.next-badge{
+  font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;
+  color:var(--muted);white-space:nowrap;
+}
+.next-badge.available{color:#34d399}
+.next-badge span{color:var(--text)}
+
+/* ── MAIN SLIDESHOW AREA ── */
+.stage{
+  position:fixed;top:56px;left:0;right:0;bottom:140px;
+  display:flex;align-items:center;justify-content:center;
+  overflow:hidden;
+  background-image:url('mapbg.php?v=2');
+  background-size:contain;
+  background-position:center;
+  background-repeat:no-repeat;
+  background-color:var(--bg);
+}
+
+/* subtle scanlines */
+.stage::before{
+  content:'';position:absolute;inset:0;z-index:1;pointer-events:none;
+  background:repeating-linear-gradient(
+    to bottom,
+    transparent 0px,transparent 3px,
+    rgba(0,0,0,.06) 3px,rgba(0,0,0,.06) 4px
+  );
+}
+
+.slide{
+  position:absolute;inset:0;
+  display:flex;align-items:center;justify-content:center;
+  opacity:0;transition:opacity .5s ease;pointer-events:none;
+}
+.slide.active{opacity:1;pointer-events:auto}
+
+.img-frame{
+  position:relative;
+  display:inline-flex;
+  max-width:100%;max-height:100%;
+  border:1px solid rgba(56,189,248,.35);
+  box-shadow:
+    0 0 0 1px rgba(0,0,0,.6),
+    0 0 40px rgba(0,0,0,.5);
+  background-color: transparent;
+}
+
+.img-frame img{
+  display:block;
+  max-width:100%;max-height:calc(100vh - 56px - 104px);
+  object-fit:contain;
+  image-rendering:auto;
+  cursor:zoom-in;
+  transition:transform .3s ease;
+  will-change:transform;
+}
+.img-frame.zoomed{overflow:hidden}
+.img-frame.zoomed img{cursor:grab;user-select:none}
+.img-frame.zoomed .lake-overlay{display:none}
+.lake-overlay{
+  position:absolute;inset:0;
+  width:100%;height:100%;
+  object-fit:contain;
+  pointer-events:none;
+  z-index:3;
+  transition:opacity .2s;
+}
+.img-frame.zoomed img.panning{cursor:grabbing}
+
+/* Kart-only slide (ingen satellittdata) */
+.img-frame.map-only{
+  width:min(100%, calc(100vh - 56px - 140px));
+  aspect-ratio:1;
+}
+.no-data-label{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  font-family:var(--font-mono);font-size:12px;letter-spacing:.15em;
+  text-transform:uppercase;color:var(--muted);
+  background:rgba(7,7,15,.7);padding:8px 16px;
+  border:1px solid var(--border);pointer-events:none;
+}
+
+/* Hjørnemarkører — L-fasonger i alle fire hjørner */
+.corner{
+  position:absolute;width:16px;height:16px;
+  border-color:var(--accent);border-style:solid;
+  opacity:.8;pointer-events:none;z-index:2;
+}
+.corner-tl{top:-1px;left:-1px;border-width:2px 0 0 2px}
+.corner-tr{top:-1px;right:-1px;border-width:2px 2px 0 0}
+.corner-bl{bottom:-1px;left:-1px;border-width:0 0 2px 2px}
+.corner-br{bottom:-1px;right:-1px;border-width:0 2px 2px 0}
+
+/* ── INFO BAR (mellom bilde og tidslinje) ── */
+.info-bar{
+  position:fixed;bottom:104px;left:0;right:0;z-index:20;height:36px;
+  display:flex;align-items:center;gap:24px;
+  padding:0 24px;
+  background:rgba(7,7,15,.92);
+  border-top:1px solid var(--border);
+  border-bottom:1px solid var(--border);
+  font-family:var(--font-mono);
+  pointer-events:none;
+}
+.info-bar-date{font-size:13px;color:var(--text);letter-spacing:.04em}
+.info-bar-meta{font-size:11px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;display:flex;gap:20px}
+.info-date{
+  font-family:var(--font-ui);font-size:30px;font-weight:300;
+  color:#fff;letter-spacing:.02em;line-height:1;
+}
+.info-meta{
+  display:flex;gap:20px;margin-top:8px;
+  font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;
+  color:var(--muted);text-transform:uppercase;
+}
+.info-meta svg{width:13px;height:13px;vertical-align:-2px;opacity:.7}
+.cloud-good{color:#34d399}
+.cloud-ok{color:#fbbf24}
+.cloud-bad{color:#f87171}
+
+/* Nav arrows */
+.nav{
+  position:absolute;top:50%;transform:translateY(-50%);z-index:10;
+  width:44px;height:44px;
+  background:rgba(7,7,15,.6);border:1px solid var(--border);
+  color:var(--accent);display:flex;align-items:center;justify-content:center;
+  cursor:pointer;font-size:18px;
+  backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);
+  transition:all .15s;user-select:none;
+}
+.nav:hover{background:var(--accent-glow);border-color:var(--accent)}
+.nav:active{transform:translateY(-50%) scale(.95)}
+.nav-prev{left:16px}
+.nav-next{right:16px}
+.nav:disabled,.nav.hidden{opacity:0;pointer-events:none}
+
+/* ── DATE FLASH ── */
+.date-flash{
+  position:fixed;
+  top:50%;left:50%;
+  transform:translate(-50%,-50%);
+  z-index:30;
+  font-family:var(--font-ui);
+  font-size:clamp(2rem, 8vw, 5rem);
+  font-weight:200;
+  letter-spacing:.06em;
+  color:#fff;
+  background:rgba(7,7,15,.72);
+  padding:.3em .7em;
+  text-shadow:none;
+  pointer-events:none;
+  white-space:nowrap;
+  opacity:0;
+  transition:opacity .15s ease;
+}
+.date-flash.show{opacity:1}
+
+/* Empty / loading states */
+.state-box{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  height:100%;gap:16px;text-align:center;padding:40px;
+  font-family:var(--font-mono);
+}
+.state-box h2{font-size:14px;font-weight:400;color:var(--text);letter-spacing:.1em}
+.state-box p{font-size:12px;color:var(--muted);max-width:460px;line-height:1.7}
+.state-box code{
+  display:block;margin-top:4px;
+  background:rgba(56,189,248,.08);border:1px solid var(--border);
+  padding:10px 16px;font-size:11px;color:var(--accent);
+  letter-spacing:.05em;text-align:left;max-width:500px;line-height:1.8;
+}
+
+.spinner{
+  width:30px;height:30px;border:2px solid rgba(56,189,248,.2);
+  border-top-color:var(--accent);border-radius:50%;
+  animation:spin .7s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── TIMELINE ── */
+.timeline{
+  position:fixed;bottom:0;left:0;right:0;z-index:19;
+  height:104px;
+  background:rgba(7,7,15,.92);border-top:1px solid var(--border);
+  display:flex;align-items:center;
+  padding:0 16px;gap:6px;
+  overflow-x:auto;overflow-y:hidden;
+  scrollbar-width:thin;scrollbar-color:var(--border) transparent;
+}
+.timeline::-webkit-scrollbar{height:3px}
+.timeline::-webkit-scrollbar-track{background:transparent}
+.timeline::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+
+.tl-item{
+  flex-shrink:0;width:68px;height:72px;
+  border:1px solid rgba(255,255,255,.08);
+  cursor:pointer;position:relative;overflow:hidden;
+  transition:all .15s;
+  background:#0d0d1a;
+}
+.tl-item:hover{border-color:rgba(56,189,248,.5)}
+.tl-item.active{
+  border-color:var(--accent);
+  box-shadow:0 0 10px var(--accent-glow);
+}
+.tl-item img{width:100%;height:100%;object-fit:cover;display:block}
+.tl-placeholder{
+  width:100%;height:100%;
+  display:flex;align-items:center;justify-content:center;
+  font-size:8px;color:var(--muted);
+}
+.tl-label{
+  position:absolute;bottom:0;left:0;right:0;
+  background:rgba(0,0,0,.75);
+  font-family:var(--font-mono);font-size:8px;
+  color:var(--muted);text-align:center;
+  padding:3px 2px 2px;letter-spacing:.05em;
+}
+.tl-item.active .tl-label{color:var(--accent)}
+
+/* Notification */
+.notif{
+  position:fixed;top:70px;right:20px;z-index:50;
+  font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;
+  padding:10px 16px;border-left:2px solid var(--accent);
+  background:rgba(7,7,15,.95);color:var(--text);
+  opacity:0;transform:translateY(-8px);
+  transition:all .25s;pointer-events:none;max-width:320px;
+}
+.notif.show{opacity:1;transform:translateY(0)}
+.notif.error{border-color:var(--danger);color:var(--danger)}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="hdr">
+  <div class="hdr-logo">
+    <div class="pulse"></div>
+    Sentinel Dashboard
+  </div>
+  <div class="hdr-center" id="aoi-label">—</div>
+  <div class="hdr-right">
+    <div class="next-badge" id="next-badge"></div>
+    <span id="counter">— / —</span>
+    <button class="filter-btn" id="filter-btn" onclick="toggleFilter()" title="Vis kun bilder med under 50 % skydekke">
+      ☁ &lt;50%
+    </button>
+    <button class="fetch-btn" id="fetch-btn" onclick="triggerFetch()" title="Hent nye bilder fra Copernicus">
+      ↓ Hent
+    </button>
+    <a class="help-btn" href="help.php" title="Bruksanvisning">?</a>
+  </div>
+</header>
+
+<!-- STAGE -->
+<div class="stage" id="stage">
+  <div class="state-box">
+    <div class="spinner"></div>
+    <p>Laster satellittbilder…</p>
+  </div>
+</div>
+
+<!-- INFO BAR -->
+<div class="info-bar" id="info-bar">
+  <div class="info-bar-date" id="info-date">—</div>
+  <div class="info-bar-meta" id="info-meta"></div>
+</div>
+
+<!-- TIMELINE -->
+<div class="timeline" id="timeline"></div>
+
+<!-- DATE FLASH -->
+<div class="date-flash" id="date-flash"></div>
+
+<!-- NOTIFICATION -->
+<div class="notif" id="notif"></div>
+
+<script>
+const API = 'api.php';
+const FETCH_TOKEN = <?= json_encode($cfg['fetch_token'] ?? '') ?>;
+let allImages = [];
+let images = [];
+let idx = 0;
+let flashTimer = null;
+let filterActive = false;
+
+// ── Data ────────────────────────────────────────────────────────────────────
+async function loadImages() {
+  try {
+    const res = await fetch(`${API}?action=list`);
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+
+    document.getElementById('aoi-label').textContent = data.aoi || '';
+    allImages = data.images || [];
+    images = filterActive ? applyFilter(allImages) : allImages;
+
+    if (images.length === 0) {
+      showEmptyState();
+    } else {
+      buildSlides();
+      buildTimeline();
+      goTo(0);
+    }
+  } catch (e) {
+    showErrorState(e.message);
+  }
+}
+
+async function loadNext() {
+  try {
+    const res  = await fetch(`${API}?action=next`);
+    const data = await res.json();
+    if (!data.ok) return;
+
+    const el = document.getElementById('next-badge');
+    if (data.status === 'available') {
+      el.className = 'next-badge available';
+      el.innerHTML = `⬇ Nytt bilde klart: <span>${formatDate(data.date)}</span>` +
+        (data.cloud_cover !== null ? ` <span>(${data.cloud_cover}%)</span>` : '');
+    } else if (data.status === 'estimated') {
+      el.className = 'next-badge';
+      el.innerHTML = `Neste bilde ~<span>${formatDate(data.estimated)}</span>`;
+    }
+  } catch (_) {}
+}
+
+async function triggerFetch() {
+  const btn = document.getElementById('fetch-btn');
+  btn.disabled = true;
+  btn.textContent = '…';
+  notify('Henter bilder fra Copernicus…');
+
+  try {
+    const res = await fetch(`${API}?action=fetch&token=${encodeURIComponent(FETCH_TOKEN)}`);
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+
+    const s = data.stats;
+    notify(`Nedlastet: ${s.downloaded}  |  Hoppet over: ${s.skipped}  |  Feil: ${s.errors.length}`, s.errors.length > 0);
+
+    if (s.downloaded > 0) {
+      setTimeout(loadImages, 800);
+    }
+  } catch (e) {
+    notify(e.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '↓ Hent';
+  }
+}
+
+// ── Filter ───────────────────────────────────────────────────────────────────
+function applyFilter(list) {
+  return list.filter(img => img.type !== 'map' && img.cloud_cover !== null && img.cloud_cover < 50);
+}
+
+function toggleFilter() {
+  filterActive = !filterActive;
+  document.getElementById('filter-btn').classList.toggle('active', filterActive);
+  images = filterActive ? applyFilter(allImages) : allImages;
+  if (images.length === 0) {
+    showEmptyState();
+    return;
+  }
+  buildSlides();
+  buildTimeline();
+  goTo(0);
+}
+
+// ── Build slides ─────────────────────────────────────────────────────────────
+function buildSlides() {
+  const stage = document.getElementById('stage');
+  stage.innerHTML = '';
+
+  images.forEach((img, i) => {
+    const slide = document.createElement('div');
+    slide.className = 'slide';
+    slide.dataset.idx = i;
+
+    const frame = document.createElement('div');
+    frame.className = 'img-frame';
+    ['tl','tr','bl','br'].forEach(pos => {
+      const c = document.createElement('span');
+      c.className = `corner corner-${pos}`;
+      frame.appendChild(c);
+    });
+
+    if (img.type === 'map') {
+      frame.classList.add('map-only');
+      const lbl = document.createElement('div');
+      lbl.className = 'no-data-label';
+      lbl.textContent = 'Ingen satellittbilde';
+      frame.appendChild(lbl);
+    } else {
+      const el = document.createElement('img');
+      el.src = `images/${img.filename}`;
+      el.alt = img.date;
+      el.loading = i === 0 ? 'eager' : 'lazy';
+      el.addEventListener('click', e => { e.stopPropagation(); if (zoomState?.dragMoved) return; toggleZoom(el, frame, e); });
+      frame.appendChild(el);
+
+      if (img.cloud_cover !== null && img.cloud_cover > 50) {
+        const ov = document.createElement('img');
+        ov.src       = 'overlay.php';
+        ov.className = 'lake-overlay';
+        ov.alt       = '';
+        ov.onerror   = () => ov.remove();
+        frame.appendChild(ov);
+      }
+    }
+
+    // Nav prev
+    const prev = navBtn('‹', 'nav nav-prev', () => goTo(idx - 1));
+    const next = navBtn('›', 'nav nav-next', () => goTo(idx + 1));
+
+    slide.appendChild(frame);
+    slide.appendChild(prev);
+    slide.appendChild(next);
+    stage.appendChild(slide);
+  });
+}
+
+function navBtn(label, cls, fn) {
+  const b = document.createElement('button');
+  b.className = cls;
+  b.textContent = label;
+  b.onclick = fn;
+  return b;
+}
+
+// ── Build timeline ───────────────────────────────────────────────────────────
+function buildTimeline() {
+  const tl = document.getElementById('timeline');
+  tl.innerHTML = '';
+
+  images.forEach((img, i) => {
+    const item = document.createElement('div');
+    item.className = 'tl-item';
+    item.dataset.idx = i;
+    item.onclick = () => goTo(i);
+
+    const thumb = document.createElement('img');
+    thumb.src   = `images/${img.filename}`;
+    thumb.alt   = img.date;
+    thumb.loading = 'lazy';
+    thumb.onerror = () => { thumb.style.display='none'; };
+
+    const label = document.createElement('div');
+    label.className = 'tl-label';
+    label.textContent = formatDateShort(img.date);
+
+    item.appendChild(thumb);
+    item.appendChild(label);
+    tl.appendChild(item);
+  });
+}
+
+// ── Navigation ───────────────────────────────────────────────────────────────
+function goTo(i) {
+  if (i < 0 || i >= images.length) return;
+  resetZoom();
+
+  // Deactivate old
+  document.querySelectorAll('.slide.active').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.tl-item.active').forEach(t => t.classList.remove('active'));
+
+  idx = i;
+
+  // Activate new
+  const slide = document.querySelector(`.slide[data-idx="${i}"]`);
+  const tlItem = document.querySelector(`.tl-item[data-idx="${i}"]`);
+
+  if (slide) slide.classList.add('active');
+  if (tlItem) {
+    tlItem.classList.add('active');
+    tlItem.scrollIntoView({behavior:'smooth', inline:'center', block:'nearest'});
+  }
+
+  // Counter
+  document.getElementById('counter').textContent = `${i + 1} / ${images.length}`;
+
+  const img = images[i];
+  const cc = img.cloud_cover;
+
+  // Date flash
+  const flashEl = document.getElementById('date-flash');
+  const ccColor = cc === null ? '' : cc < 20 ? '#34d399' : cc < 50 ? '#fbbf24' : '#f87171';
+  const ccHtml = img.type === 'map'
+    ? `<span style="font-size:.45em;color:var(--muted);display:block;margin-top:.2em;text-align:center">Ingen satellittdata</span>`
+    : cc !== null
+      ? `<span style="font-size:.45em;color:${ccColor};display:block;margin-top:.2em;text-align:center">${cc}% skydekke</span>`
+      : '';
+  flashEl.innerHTML = formatDate(img.date) + ccHtml;
+  flashEl.classList.add('show');
+  clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => flashEl.classList.remove('show'), 1000);
+
+  // Info bar
+  document.getElementById('info-date').textContent = formatDate(img.date);
+  const ccClass = cc === null ? '' : cc < 20 ? 'cloud-good' : cc < 50 ? 'cloud-ok' : 'cloud-bad';
+  const ccText  = img.type === 'map' ? 'Ingen satellittdata — viser kart'
+                : cc !== null ? cc + '% skydekke' : 'Ukjent skydekke';
+  document.getElementById('info-meta').innerHTML =
+    `<span class="${ccClass}">${ccText}</span>` +
+    (img.type !== 'map' ? `<span>Contains modified Copernicus Sentinel data ${img.date.slice(0,4)}</span>` : '');
+}
+
+// ── Zoom ──────────────────────────────────────────────────────────────────────
+let zoomState = null;
+const ZOOM_SCALE = 4.0;
+
+function applyZoomTransform() {
+  if (!zoomState) return;
+  const { imgEl, tx, ty, panX, panY } = zoomState;
+  imgEl.style.transform = `translate(${tx + panX}px, ${ty + panY}px) scale(${ZOOM_SCALE})`;
+}
+
+function toggleZoom(imgEl, frameEl, e) {
+  if (frameEl.classList.contains('zoomed')) { resetZoom(); return; }
+  const rect = imgEl.getBoundingClientRect();
+  const clickX = e.clientX - rect.left - rect.width  / 2;
+  const clickY = e.clientY - rect.top  - rect.height / 2;
+  imgEl.style.transformOrigin = '50% 50%';
+  zoomState = {
+    imgEl, frameEl,
+    tx: clickX * (1 - ZOOM_SCALE), ty: clickY * (1 - ZOOM_SCALE),
+    panX: 0, panY: 0,
+    isPanning: false, dragMoved: false,
+    startX: 0, startY: 0, dragStartX: 0, dragStartY: 0,
+  };
+  applyZoomTransform();
+  frameEl.classList.add('zoomed');
+}
+
+function resetZoom() {
+  if (!zoomState) return;
+  const { imgEl, frameEl } = zoomState;
+  frameEl.classList.remove('zoomed');
+  imgEl.style.transform = '';
+  imgEl.style.transformOrigin = '';
+  zoomState = null;
+}
+
+document.addEventListener('mousedown', e => {
+  if (!zoomState || !e.target.closest('.img-frame.zoomed')) return;
+  zoomState.isPanning  = true;
+  zoomState.dragMoved  = false;
+  zoomState.dragStartX = e.clientX;
+  zoomState.dragStartY = e.clientY;
+  zoomState.startX     = e.clientX - zoomState.panX;
+  zoomState.startY     = e.clientY - zoomState.panY;
+  zoomState.imgEl.classList.add('panning');
+});
+
+document.addEventListener('mousemove', e => {
+  if (!zoomState?.isPanning) return;
+  if (Math.abs(e.clientX - zoomState.dragStartX) > 4 || Math.abs(e.clientY - zoomState.dragStartY) > 4)
+    zoomState.dragMoved = true;
+  zoomState.panX = e.clientX - zoomState.startX;
+  zoomState.panY = e.clientY - zoomState.startY;
+  applyZoomTransform();
+});
+
+document.addEventListener('mouseup', () => {
+  if (!zoomState) return;
+  zoomState.isPanning = false;
+  zoomState.imgEl.classList.remove('panning');
+});
+
+document.addEventListener('touchstart', e => {
+  if (!zoomState || !e.target.closest('.img-frame.zoomed')) return;
+  if (e.touches.length !== 1) return;
+  const t = e.touches[0];
+  zoomState.isPanning  = true;
+  zoomState.dragMoved  = false;
+  zoomState.dragStartX = t.clientX;
+  zoomState.dragStartY = t.clientY;
+  zoomState.startX     = t.clientX - zoomState.panX;
+  zoomState.startY     = t.clientY - zoomState.panY;
+  zoomState.imgEl.classList.add('panning');
+}, { passive: true });
+
+document.addEventListener('touchmove', e => {
+  if (!zoomState?.isPanning) return;
+  if (e.touches.length !== 1) return;
+  e.preventDefault();
+  const t = e.touches[0];
+  if (Math.abs(t.clientX - zoomState.dragStartX) > 4 || Math.abs(t.clientY - zoomState.dragStartY) > 4)
+    zoomState.dragMoved = true;
+  zoomState.panX = t.clientX - zoomState.startX;
+  zoomState.panY = t.clientY - zoomState.startY;
+  applyZoomTransform();
+}, { passive: false });
+
+document.addEventListener('touchend', () => {
+  if (!zoomState) return;
+  zoomState.isPanning = false;
+  zoomState.imgEl.classList.remove('panning');
+});
+
+// ── Keyboard ─────────────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape')     resetZoom();
+  if (e.key === 'ArrowLeft')  goTo(idx - 1); // nyere
+  if (e.key === 'ArrowRight') goTo(idx + 1); // eldre
+  if (e.key === 'Home') goTo(0);
+  if (e.key === 'End')  goTo(images.length - 1);
+});
+
+// ── Empty state ───────────────────────────────────────────────────────────────
+function showEmptyState() {
+  document.getElementById('stage').innerHTML = `
+    <div class="state-box">
+      <h2>Ingen bilder lagret ennå</h2>
+      <p>Konfigurer CDSE-legitimasjon i <strong>config.php</strong>, deretter hent bilder.</p>
+      <code>
+// config.php<br>
+'username' =&gt; 'din@epost.no',<br>
+'password' =&gt; 'ditt-passord',
+      </code>
+      <p style="margin-top:8px">
+        Registrer gratis konto på
+        <strong>dataspace.copernicus.eu</strong>
+        — klikk deretter <em>↓ Hent</em> oppe til høyre.
+      </p>
+    </div>`;
+  document.getElementById('timeline').innerHTML = '';
+  document.getElementById('counter').textContent = '0 bilder';
+}
+
+function showErrorState(msg) {
+  document.getElementById('stage').innerHTML = `
+    <div class="state-box">
+      <h2>Feil ved lasting</h2>
+      <p>${msg}</p>
+    </div>`;
+}
+
+// ── Notification ──────────────────────────────────────────────────────────────
+let notifTimer;
+function notify(msg, isError = false) {
+  const el = document.getElementById('notif');
+  el.textContent = msg;
+  el.className = 'notif show' + (isError ? ' error' : '');
+  clearTimeout(notifTimer);
+  notifTimer = setTimeout(() => el.classList.remove('show'), 4000);
+}
+
+// ── Format dates ──────────────────────────────────────────────────────────────
+function formatDate(dateStr) {
+  const [y, m, d] = dateStr.split('-');
+  const months = ['januar','februar','mars','april','mai','juni',
+                  'juli','august','september','oktober','november','desember'];
+  return `${parseInt(d)}. ${months[parseInt(m)-1]} ${y}`;
+}
+
+function formatDateShort(dateStr) {
+  const [y, m, d] = dateStr.split('-');
+  return `${d}.${m}.${y.slice(2)}`;
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+loadImages();
+loadNext();
+</script>
+</body>
+</html>

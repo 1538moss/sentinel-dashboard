@@ -1,0 +1,14 @@
+# Hemmeligheter — skal ALDRI committes
+.sentinel.env
+*.env
+
+# Genererte filer og data
+images/
+data/
+
+# Editor og OS
+.vscode/
+.claude/
+*.memory/
+Thumbs.db
+.DS_Store

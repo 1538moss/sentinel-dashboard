@@ -1,0 +1,22 @@
+# Beskytt config og data mot direkte henting
+<FilesMatch "^(config|fetch)\.php$">
+    Order deny,allow
+    Deny from all
+</FilesMatch>
+
+# Blokker .env-filer hvis de havner i webroot
+<FilesMatch "^\.env|\.sentinel\.env">
+    Order deny,allow
+    Deny from all
+</FilesMatch>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    # Blokkér tilgang til /data/-mappe
+    RewriteRule ^data/ - [F,L]
+</IfModule>
+
+# Tving JSON-svar fra api.php å ikke caches
+<FilesMatch "^api\.php$">
+    Header set Cache-Control "no-store, no-cache"
+</FilesMatch>

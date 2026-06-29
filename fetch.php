@@ -1,0 +1,428 @@
+<?php
+/**
+ * Sentinel Image Fetcher — bruker Sentinel Hub Processing API via CDSE
+ *
+ * Kjør manuelt  : php fetch.php
+ * Cron (kl 07)  : 0 7 * * * php /path/to/fetch.php >> /path/to/fetch.log 2>&1
+ *
+ * Krever OAuth2-klient fra CDSE-dashbordet:
+ *   https://shapps.dataspace.copernicus.eu/dashboard/#/account/settings
+ *   → OAuth Clients → Create client (grant: client_credentials)
+ */
+
+class SentinelFetcher
+{
+    private array  $config;
+    private ?string $token     = null;
+    private int    $tokenExpiry = 0;
+
+    public function __construct(array $config)
+    {
+        $this->config = $config;
+        $this->ensureDirectories();
+    }
+
+    private function ensureDirectories(): void
+    {
+        foreach ([$this->config['images_dir'], $this->config['data_dir']] as $dir) {
+            if (!is_dir($dir)) mkdir($dir, 0755, true);
+        }
+    }
+
+    // ── Auth ──────────────────────────────────────────────────────────────────
+    private function getToken(): string
+    {
+        if ($this->token && time() < $this->tokenExpiry) return $this->token;
+
+        $cid = $this->config['sh']['client_id'];
+        $sec = $this->config['sh']['client_secret'];
+
+        if (empty($cid) || empty($sec)) {
+            throw new RuntimeException(
+                "Mangler Sentinel Hub OAuth2-klient.\n" .
+                "Opprett OAuth-klient på https://shapps.dataspace.copernicus.eu/dashboard/#/account/settings\n" .
+                "→ OAuth Clients → Create client (grant type: client_credentials)\n" .
+                "Lim inn client_id og client_secret i config.php under 'sh'."
+            );
+        }
+
+        $ch = curl_init($this->config['sh']['token_url']);
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => http_build_query([
+                'grant_type'    => 'client_credentials',
+                'client_id'     => $cid,
+                'client_secret' => $sec,
+            ]),
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPHEADER     => ['Content-Type: application/x-www-form-urlencoded'],
+            CURLOPT_TIMEOUT        => 15,
+        ]);
+
+        $body = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($code !== 200) {
+            throw new RuntimeException("Token-forespørsel feilet (HTTP $code): $body");
+        }
+
+        $data = json_decode($body, true);
+        if (empty($data['access_token'])) {
+            throw new RuntimeException("Ingen access_token i svar: $body");
+        }
+
+        $this->token      = $data['access_token'];
+        $this->tokenExpiry = time() + ($data['expires_in'] ?? 300) - 30;
+        return $this->token;
+    }
+
+    // ── Catalog search ────────────────────────────────────────────────────────
+    /** Returnerer array med ['date'=>'YYYY-MM-DD', 'cloud_cover'=>float] */
+    public function searchDates(string $from, string $to): array
+    {
+        $token = $this->getToken();
+        $aoi   = $this->config['aoi'];
+
+        $payload = [
+            'bbox'        => [$aoi['west'], $aoi['south'], $aoi['east'], $aoi['north']],
+            'datetime'    => "{$from}T00:00:00Z/{$to}T23:59:59Z",
+            'collections' => ['sentinel-2-l2a'],
+            'limit'       => 100,
+            'filter'      => 'eo:cloud_cover < ' . $this->config['max_cloud_cover'],
+            'filter-lang' => 'cql2-text',
+        ];
+
+        $ch = curl_init($this->config['sh']['catalog_url'] . '/search');
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => json_encode($payload),
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPHEADER     => [
+                "Authorization: Bearer $token",
+                'Content-Type: application/json',
+                'Accept: */*',
+            ],
+            CURLOPT_TIMEOUT => 30,
+        ]);
+
+        $body = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($code !== 200) {
+            throw new RuntimeException("Katalogsøk feilet (HTTP $code): $body");
+        }
+
+        $data     = json_decode($body, true);
+        $features = $data['features'] ?? [];
+
+        // Grupper per dato — behold lavest skydekke
+        $byDate = [];
+        foreach ($features as $f) {
+            $date  = substr($f['properties']['datetime'], 0, 10);
+            $cloud = (float)($f['properties']['eo:cloud_cover'] ?? 100);
+            if (!isset($byDate[$date]) || $cloud < $byDate[$date]['cloud_cover']) {
+                $byDate[$date] = ['date' => $date, 'cloud_cover' => round($cloud, 1)];
+            }
+        }
+
+        // Nyeste først
+        krsort($byDate);
+        return array_values($byDate);
+    }
+
+    // ── Process API — hent rendret bilde ─────────────────────────────────────
+    public function fetchImage(string $date): string
+    {
+        $token = $this->getToken();
+        $aoi   = $this->config['aoi'];
+        $w     = $this->config['image_width'];
+        $h     = $this->config['image_height'];
+
+        $mode = $this->config['render_mode'] ?? 'true_color';
+
+        // 4. band = dataMask: 1 der satellitten har data, 0 (transparent) der den ikke har
+        if ($mode === 'false_color') {
+            $evalscript = <<<'JS'
+//VERSION=3
+function setup() {
+  return { input: ["B08","B04","B03","dataMask"], output: { bands: 4 } };
+}
+function evaluatePixel(s) {
+  var gain = 3.0;
+  return [
+    Math.min(1, s.B08 * gain),
+    Math.min(1, s.B04 * gain),
+    Math.min(1, s.B03 * gain),
+    s.dataMask
+  ];
+}
+JS;
+        } else {
+            $evalscript = <<<'JS'
+//VERSION=3
+function setup() {
+  return { input: ["B04","B03","B02","dataMask"], output: { bands: 4 } };
+}
+function evaluatePixel(s) {
+  var gain = 3.5;
+  return [
+    Math.min(1, s.B04 * gain),
+    Math.min(1, s.B03 * gain),
+    Math.min(1, s.B02 * gain),
+    s.dataMask
+  ];
+}
+JS;
+        }
+
+        $payload = [
+            'input' => [
+                'bounds' => [
+                    'bbox' => [$aoi['west'], $aoi['south'], $aoi['east'], $aoi['north']],
+                    'properties' => ['crs' => 'http://www.opengis.net/def/crs/OGC/1.3/CRS84'],
+                ],
+                'data' => [[
+                    'type'       => 'sentinel-2-l2a',
+                    'dataFilter' => [
+                        'timeRange' => [
+                            'from' => $date . 'T00:00:00Z',
+                            'to'   => $date . 'T23:59:59Z',
+                        ],
+                        'maxCloudCoverage' => $this->config['max_cloud_cover'],
+                    ],
+                ]],
+            ],
+            'output' => [
+                'width'  => $w,
+                'height' => $h,
+                'responses' => [[
+                    'identifier' => 'default',
+                    'format'     => ['type' => 'image/png'],
+                ]],
+            ],
+            'evalscript' => $evalscript,
+        ];
+
+        $ch = curl_init($this->config['sh']['process_url']);
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => json_encode($payload),
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPHEADER     => [
+                "Authorization: Bearer $token",
+                'Content-Type: application/json',
+                'Accept: image/png',
+            ],
+            CURLOPT_TIMEOUT => 60,
+        ]);
+
+        $imageData   = curl_exec($ch);
+        $code        = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $contentType = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+        curl_close($ch);
+
+        if ($code !== 200) {
+            $msg = is_string($imageData) ? substr($imageData, 0, 200) : '';
+            throw new RuntimeException("Process API feilet (HTTP $code): $msg");
+        }
+
+        if (!str_contains((string)$contentType, 'image')) {
+            throw new RuntimeException("Svar er ikke et bilde (Content-Type: $contentType)");
+        }
+
+        return $imageData;
+    }
+
+    // ── Metadata ──────────────────────────────────────────────────────────────
+    public function loadMetadata(): array
+    {
+        $file = $this->config['metadata_file'];
+        if (!file_exists($file)) return [];
+        $data = json_decode(file_get_contents($file), true);
+        return is_array($data) ? $data : [];
+    }
+
+    public function saveMetadata(array $data): void
+    {
+        file_put_contents(
+            $this->config['metadata_file'],
+            json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)
+        );
+    }
+
+    // ── Hoved-kjøring ─────────────────────────────────────────────────────────
+    public function runRange(string $startDate, string $endDate): array
+    {
+        return $this->_run($startDate, $endDate);
+    }
+
+    public function run(?int $daysBack = null): array
+    {
+        $daysBack  = $daysBack ?? $this->config['days_to_search'];
+        $endDate   = date('Y-m-d');
+        $startDate = date('Y-m-d', strtotime("-{$daysBack} days"));
+        return $this->_run($startDate, $endDate);
+    }
+
+    private function _run(string $startDate, string $endDate): array
+    {
+
+        $stats = ['searched' => 0, 'downloaded' => 0, 'skipped' => 0, 'errors' => []];
+
+        $dates = $this->searchDates($startDate, $endDate);
+        $stats['searched'] = count($dates);
+
+        $metadata     = $this->loadMetadata();
+        $existingDates = array_column($metadata, 'date');
+
+        foreach ($dates as $entry) {
+            $date  = $entry['date'];
+            $cloud = $entry['cloud_cover'];
+
+            if (in_array($date, $existingDates, true)) {
+                $stats['skipped']++;
+                continue;
+            }
+
+            $filename = $date . '.png';
+            $savePath = $this->config['images_dir'] . $filename;
+
+            try {
+                $imageData = $this->fetchImage($date);
+                file_put_contents($savePath, $imageData);
+
+                $metadata[] = [
+                    'id'          => $date,
+                    'date'        => $date,
+                    'cloud_cover' => $cloud,
+                    'filename'    => $filename,
+                    'fetched_at'  => date('c'),
+                ];
+
+                $stats['downloaded']++;
+                echo "  ✓ $date  (skydekke: {$cloud}%)\n";
+            } catch (RuntimeException $e) {
+                $stats['errors'][] = "$date: " . $e->getMessage();
+                echo "  ✗ $date  " . $e->getMessage() . "\n";
+            }
+        }
+
+        // Legg til kart-placeholder for alle dager i perioden uten satellittbilde
+        $metaDates = array_column($metadata, 'date');
+        $day = new DateTime($startDate);
+        $end = new DateTime($endDate);
+        while ($day <= $end) {
+            $d = $day->format('Y-m-d');
+            if (!in_array($d, $metaDates, true)) {
+                $metadata[] = [
+                    'id'          => 'map_' . $d,
+                    'date'        => $d,
+                    'cloud_cover' => null,
+                    'filename'    => null,
+                    'type'        => 'map',
+                    'fetched_at'  => date('c'),
+                ];
+                echo "  🗺  $d  (ingen satellittdata — bruker kart)\n";
+            }
+            $day->modify('+1 day');
+        }
+
+        usort($metadata, fn($a, $b) => strcmp($b['date'], $a['date']));
+        $this->saveMetadata($metadata);
+
+        $stats['deleted'] = $this->purgeOldImages();
+
+        return $stats;
+    }
+
+    // ── Slett bilder eldre enn keep_days ─────────────────────────────────────
+    public function purgeOldImages(): int
+    {
+        $keepDays = $this->config['keep_days'] ?? 365;
+        $cutoff   = date('Y-m-d', strtotime("-{$keepDays} days"));
+
+        $metadata = $this->loadMetadata();
+        $deleted  = 0;
+
+        $metadata = array_filter($metadata, function ($m) use ($cutoff, $keepDays, &$deleted) {
+            if ($m['date'] >= $cutoff) return true;
+
+            if (!empty($m['filename'])) {
+                $path = $this->config['images_dir'] . $m['filename'];
+                if (file_exists($path)) {
+                    unlink($path);
+                    echo "  🗑  {$m['date']}  (eldre enn {$keepDays} dager — slettet)\n";
+                }
+            }
+            $deleted++;
+            return false;
+        });
+
+        if ($deleted > 0) {
+            $this->saveMetadata(array_values($metadata));
+        }
+
+        return $deleted;
+    }
+}
+
+// ── CLI ───────────────────────────────────────────────────────────────────────
+if (PHP_SAPI === 'cli') {
+    $config  = require __DIR__ . '/config.php';
+    $fetcher = new SentinelFetcher($config);
+
+    $args = [];
+    foreach (array_slice($argv, 1) as $arg) {
+        if (preg_match('/^--(\w+)=(.+)$/', $arg, $m)) $args[$m[1]] = $m[2];
+    }
+    $from = $args['from'] ?? null;
+    $to   = $args['to']   ?? null;
+
+    if (($from && !$to) || (!$from && $to)) {
+        echo "Bruk: php fetch.php --from=YYYY-MM-DD --to=YYYY-MM-DD\n";
+        exit(1);
+    }
+
+    if ($from && $to) {
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $from) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $to)) {
+            echo "Datoformat må være YYYY-MM-DD\n";
+            exit(1);
+        }
+        if ($from > $to) {
+            echo "  (datoer byttet om — fra må være før til)\n";
+            [$from, $to] = [$to, $from];
+        }
+        echo "Sentinel Fetcher (Sentinel Hub Processing API)\n";
+        echo "Område : " . $config['aoi']['name'] . "\n";
+        echo "Periode: $from → $to\n\n";
+        $stats = null;
+        try {
+            $stats = $fetcher->runRange($from, $to);
+        } catch (RuntimeException $e) {
+            echo "FEIL: " . $e->getMessage() . "\n";
+            exit(1);
+        }
+    } else {
+        echo "Sentinel Fetcher (Sentinel Hub Processing API)\n";
+        echo "Område : " . $config['aoi']['name'] . "\n";
+        echo "Periode: siste " . $config['days_to_search'] . " dager\n\n";
+        $stats = null;
+        try {
+            $stats = $fetcher->run();
+        } catch (RuntimeException $e) {
+            echo "FEIL: " . $e->getMessage() . "\n";
+            exit(1);
+        }
+    }
+
+    echo "\nFerdig.\n";
+    echo "  Tilgjengelige datoer: {$stats['searched']}\n";
+    echo "  Nedlastet           : {$stats['downloaded']}\n";
+    echo "  Hoppet over         : {$stats['skipped']} (allerede lagret)\n";
+    if ($stats['errors']) {
+        echo "  Feil: " . count($stats['errors']) . "\n";
+        foreach ($stats['errors'] as $e) echo "    - $e\n";
+    }
+}
