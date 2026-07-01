@@ -451,6 +451,8 @@ JS;
 
         $metadata = $this->loadMetadata();
 
+        $this->log("S2 katalogsøk: {$stats['searched']} dato(er) funnet");
+
         // Skip-liste: kun ekte S2-bilder (ikke kart-placeholders, ikke S1)
         $existingS2Dates = [];
         foreach ($metadata as $m) {
@@ -467,6 +469,7 @@ JS;
 
             if (in_array($date, $existingS2Dates, true)) {
                 $stats['skipped']++;
+                $this->log("S2 SKIP  $date  (allerede lagret)");
                 continue;
             }
 
@@ -476,10 +479,11 @@ JS;
             try {
                 $imageData = $this->fetchImage($date);
                 file_put_contents($savePath, $imageData);
+                $kb = round(strlen($imageData) / 1024);
 
                 $thumbFile = $date . '.jpg';
                 $thumbPath = $this->config['thumbs_dir'] . $thumbFile;
-                $this->generateThumb($savePath, $thumbPath);
+                $thumbOk   = $this->generateThumb($savePath, $thumbPath);
 
                 // Erstatt eventuell kart-placeholder for denne datoen
                 $metadata = array_values(array_filter($metadata,
@@ -491,12 +495,13 @@ JS;
                     'date'        => $date,
                     'cloud_cover' => $cloud,
                     'filename'    => $filename,
-                    'thumbnail'   => file_exists($thumbPath) ? $thumbFile : null,
+                    'thumbnail'   => $thumbOk ? $thumbFile : null,
                     'fetched_at'  => date('c'),
                 ];
 
                 $stats['downloaded']++;
-                $this->log("S2 OK    $date  (skydekke: {$cloud}%)");
+                $thumb = $thumbOk ? "thumbnail: $thumbFile" : 'thumbnail: FEIL';
+                $this->log("S2 OK    $date  →  $filename  ({$kb} KB  skydekke: {$cloud}%  $thumb)");
             } catch (RuntimeException $e) {
                 $stats['errors'][] = "$date: " . $e->getMessage();
                 $this->log("S2 FEIL  $date  " . $e->getMessage());
@@ -527,6 +532,8 @@ JS;
         if (($this->config['product'] ?? 'std') === 'pro') {
             $s1Dates = $this->searchDatesS1($startDate, $endDate);
 
+            $this->log("S1 katalogsøk: " . count($s1Dates) . " dato(er) funnet");
+
             // Skip-liste: S1-entries der filen faktisk finnes på disk
             $existingS1 = [];
             foreach ($metadata as $m) {
@@ -541,6 +548,7 @@ JS;
                 $date = $entry['date'];
                 if (in_array($date, $existingS1, true)) {
                     $stats['s1_skipped']++;
+                    $this->log("S1 SKIP  $date  (allerede lagret)");
                     continue;
                 }
 
@@ -555,10 +563,11 @@ JS;
                 try {
                     $imageData = $this->fetchImageS1($date);
                     file_put_contents($savePath, $imageData);
+                    $kb = round(strlen($imageData) / 1024);
 
                     $thumbFile = $date . '-s1.jpg';
                     $thumbPath = $this->config['thumbs_dir'] . $thumbFile;
-                    $this->generateThumb($savePath, $thumbPath);
+                    $thumbOk   = $this->generateThumb($savePath, $thumbPath);
 
                     $metadata[] = [
                         'id'          => 's1_' . $date,
@@ -566,13 +575,14 @@ JS;
                         'sensor'      => 'S1',
                         'cloud_cover' => null,
                         'filename'    => $filename,
-                        'thumbnail'   => file_exists($thumbPath) ? $thumbFile : null,
+                        'thumbnail'   => $thumbOk ? $thumbFile : null,
                         'type'        => 'radar',
                         'fetched_at'  => date('c'),
                     ];
 
                     $stats['s1_downloaded']++;
-                    $this->log("S1 OK    $date");
+                    $thumb = $thumbOk ? "thumbnail: $thumbFile" : 'thumbnail: FEIL';
+                    $this->log("S1 OK    $date  →  $filename  ({$kb} KB  $thumb)");
                 } catch (RuntimeException $e) {
                     $stats['s1_errors'][] = "$date: " . $e->getMessage();
                     $this->log("S1 FEIL  $date  " . $e->getMessage());
@@ -585,9 +595,9 @@ JS;
 
         $stats['deleted'] = $this->purgeOldImages();
 
-        $s2sum = "S2 {$stats['downloaded']} ned / {$stats['skipped']} skip / " . count($stats['errors']) . " feil";
-        $s1sum = "S1 {$stats['s1_downloaded']} ned / {$stats['s1_skipped']} skip / " . count($stats['s1_errors']) . " feil";
-        $this->log("=== Ferdig: $s2sum | $s1sum | {$stats['deleted']} slettet ===");
+        $s2sum = "S2: {$stats['downloaded']} nedlastet / {$stats['skipped']} hoppet over / " . count($stats['errors']) . " feil";
+        $s1sum = "S1: {$stats['s1_downloaded']} nedlastet / {$stats['s1_skipped']} hoppet over / " . count($stats['s1_errors']) . " feil";
+        $this->log("=== Ferdig — $s2sum | $s1sum | {$stats['deleted']} slettet ===");
 
         return $stats;
     }
@@ -606,6 +616,7 @@ JS;
 
             if (!empty($m['filename'])) {
                 $path = $this->config['images_dir'] . $m['filename'];
+                $kb = file_exists($path) ? round(filesize($path) / 1024) : 0;
                 if (file_exists($path)) unlink($path);
 
                 $thumb = $m['thumbnail'] ?? null;
@@ -614,8 +625,9 @@ JS;
                     if (file_exists($tp)) unlink($tp);
                 }
 
-                $sensor = ($m['sensor'] ?? '') === 'S1' ? ' (S1)' : '';
-                $this->log("SLETTET  {$m['date']}{$sensor}  (eldre enn {$keepDays} dager)");
+                $sensor = ($m['sensor'] ?? '') === 'S1' ? ' S1' : ' S2';
+                $file   = $m['filename'];
+                $this->log("SLETTET {$m['date']}{$sensor}  →  $file  ({$kb} KB  eldre enn {$keepDays} dager)");
             }
             $deleted++;
             return false;
