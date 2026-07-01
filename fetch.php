@@ -455,7 +455,9 @@ JS;
         $existingS2Dates = [];
         foreach ($metadata as $m) {
             if (($m['type'] ?? '') !== 'map' && ($m['sensor'] ?? '') !== 'S1' && !empty($m['filename'])) {
-                $existingS2Dates[] = $m['date'];
+                if (file_exists($this->config['images_dir'] . $m['filename'])) {
+                    $existingS2Dates[] = $m['date'];
+                }
             }
         }
 
@@ -525,11 +527,15 @@ JS;
         if (($this->config['product'] ?? 'std') === 'pro') {
             $s1Dates = $this->searchDatesS1($startDate, $endDate);
 
-            // Skip-liste: kun eksisterende S1-entries
-            $existingS1 = array_column(
-                array_filter($metadata, fn($m) => ($m['sensor'] ?? '') === 'S1'),
-                'date'
-            );
+            // Skip-liste: S1-entries der filen faktisk finnes på disk
+            $existingS1 = [];
+            foreach ($metadata as $m) {
+                if (($m['sensor'] ?? '') === 'S1' && !empty($m['filename'])) {
+                    if (file_exists($this->config['images_dir'] . $m['filename'])) {
+                        $existingS1[] = $m['date'];
+                    }
+                }
+            }
 
             foreach ($s1Dates as $entry) {
                 $date = $entry['date'];
@@ -537,6 +543,11 @@ JS;
                     $stats['s1_skipped']++;
                     continue;
                 }
+
+                // Fjern eventuell foreldret S1-metadata uten fil på disk
+                $metadata = array_values(array_filter($metadata,
+                    fn($m) => !(($m['sensor'] ?? '') === 'S1' && $m['date'] === $date)
+                ));
 
                 $filename = $date . '-s1.png';
                 $savePath = $this->config['images_dir'] . $filename;
