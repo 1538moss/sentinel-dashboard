@@ -543,6 +543,7 @@ function toggleProMode() {
   document.body.classList.toggle('pro-mode', proMode);
   updateProBtn();
   buildSlides();
+  buildTimeline();
   if (images.length > 0) goTo(idx);
 }
 
