@@ -142,7 +142,12 @@ kbd{
     </div>
     <div class="row">
       <div class="key">Tidslinje</div>
-      <div class="desc">Klikk eller trykk på et miniatyrbilde i bunnen for å hoppe direkte til den datoen</div>
+      <div class="desc">
+        Klikk eller trykk på et miniatyrbilde i bunnen for å hoppe direkte til den datoen.
+        I pro-modus vises små bokstaver øverst til høyre på miniatyrbildene:
+        <span style="background:rgba(56,189,248,.88);color:#07070f;font-family:var(--font-mono);font-size:9px;font-weight:700;padding:1px 4px">O</span> = optisk bilde (Sentinel-2) &nbsp;
+        <span style="background:rgba(168,85,247,.88);color:#fff;font-family:var(--font-mono);font-size:9px;font-weight:700;padding:1px 4px">R</span> = radarbilde (Sentinel-1)
+      </div>
     </div>
   </section>
 

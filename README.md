@@ -15,9 +15,9 @@ Interaktivt fullskjerm-dashboard som automatisk henter og viser daglige satellit
 | Fargetema | Cyan (Std) / Lilla (Pro) — visuell modus-indikator |
 | Zoom / pan | 4× zoom ved klikk, dra for panorering, touch-støtte |
 | Skydekke-filter | Skjul dager med >50 % skydekke |
-| Tidslinje | JPEG-thumbnails (136×136) for lav båndbredde |
-| Automatisk henting | Cron kl. 07 henter nye bilder fra Copernicus |
-| Fetch-logg | Alle kjøringer logges til `data/fetch.log` med tidsstempel |
+| Tidslinje | JPEG-thumbnails (136×136) med **O**/**R**-badges i pro-modus |
+| Automatisk henting | Cron hver 3. time henter nye bilder fra Copernicus |
+| Fetch-logg | Alle kjøringer logges til `data/fetch.log` med tidsstempel og filnavn |
 
 ---
 
@@ -32,6 +32,10 @@ To paneler side om side:
 - **Høyre** — Sentinel-1 SAR-radar (S1) med jet-fargeskala
 
 Mobil (<640px): panelene stables vertikalt. Radar-etiketten vises nederst til venstre.
+
+Thumbnails i tidslinjen viser badges når begge sensorer har data for datoen:
+- `O` (cyan) — Sentinel-2 optisk bilde tilgjengelig
+- `R` (lilla) — Sentinel-1 radarbilde tilgjengelig
 
 ---
 
@@ -91,10 +95,10 @@ sudo php fetch.php --from=2026-01-01 --to=2026-01-14
 sudo php cleanup.php 2026-06-30 2026-07-01
 ```
 
-### Cron (automatisk, kl. 07)
+### Cron (automatisk, hver 3. time)
 
 ```
-0 7 * * * php /var/www/sentinel/fetch.php
+0 */3 * * * php /var/www/sentinel/fetch.php
 ```
 
 ---
