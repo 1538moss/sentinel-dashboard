@@ -37,9 +37,12 @@ return [
     // 'false_color' → B08/B04/B03  — vegetasjon rød, vann mørkt blått
     'render_mode'     => 'false_color',
 
+    // 'std' = kun Sentinel-2 optisk  |  'pro' = S2 + S1 SAR-radar
+    'product'         => 'pro',
+
     'max_cloud_cover' => 100,  // prosent (100 = hent alle uansett skydekke)
     'days_to_search'  => 14,   // søk bakover N dager
-    'keep_days'       => 365,  // slett bilder eldre enn N dager
+    'keep_days'       => 30,   // slett bilder eldre enn N dager
     'image_width'     => 1024,
     'image_height'    => 1024,
 

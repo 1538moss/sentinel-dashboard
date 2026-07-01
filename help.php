@@ -91,9 +91,22 @@ kbd{
 }
 .note strong{color:var(--text)}
 
+.note-pro{
+  margin-top:12px;
+  background:rgba(168,85,247,.05);border-left:2px solid #a855f7;
+  padding:12px 16px;font-size:12px;color:var(--muted);line-height:1.7;
+}
+.note-pro strong{color:var(--text)}
+
 .cloud-good{color:#34d399}
 .cloud-ok{color:#fbbf24}
 .cloud-bad{color:#f87171}
+.pro-tag{
+  display:inline-block;
+  font-family:var(--font-mono);font-size:9px;letter-spacing:.15em;text-transform:uppercase;
+  color:#a855f7;border:1px solid rgba(168,85,247,.4);padding:1px 6px;
+  vertical-align:middle;margin-left:4px;
+}
 </style>
 </head>
 <body>
@@ -129,7 +142,42 @@ kbd{
     </div>
     <div class="row">
       <div class="key">Tidslinje</div>
-      <div class="desc">Klikk eller trykk på en miniatyrbilde i bunnen for å hoppe direkte til den datoen</div>
+      <div class="desc">Klikk eller trykk på et miniatyrbilde i bunnen for å hoppe direkte til den datoen</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Visningsmodus</h2>
+    <div class="row">
+      <div class="key">Std-modus</div>
+      <div class="desc">
+        Standard visning — ett fullskjermbilde per dag fra <strong>Sentinel-2</strong> (optisk kamera).
+        Header-temaet er <span style="color:#38bdf8">cyan</span>.
+      </div>
+    </div>
+    <div class="row">
+      <div class="key">Pro-modus <span class="pro-tag">Pro</span></div>
+      <div class="desc">
+        To bilder side om side per dag — <strong>Optisk</strong> (Sentinel-2) til venstre og
+        <strong>Radar</strong> (Sentinel-1 SAR) til høyre.
+        Header-temaet skifter til <span style="color:#a855f7">lilla</span> som visuell indikator.
+        På mobil stables bildene vertikalt.
+      </div>
+    </div>
+    <div class="row">
+      <div class="key">Pro-knappen</div>
+      <div class="desc">
+        Klikk <kbd>Pro</kbd> for å aktivere pro-modus. Knappen viser da <kbd>Std</kbd> for å gå tilbake.
+        Aktuell modus vises også ved siden av logonavnet: <strong>[PRO mode]</strong> eller <strong>[STD mode]</strong>.
+        Valget huskes i nettleseren.
+      </div>
+    </div>
+    <div class="row">
+      <div class="key">Ingen data</div>
+      <div class="desc">
+        Mangler optisk bilde for en dato vises bakgrunnskartet med teksten «Ingen satellittbilde».
+        Mangler radardata vises tilsvarende «Ingen radardata» i høyre panel.
+      </div>
     </div>
   </section>
 
@@ -168,12 +216,13 @@ kbd{
     </div>
     <div class="row">
       <div class="key">Kart</div>
-      <div class="desc">Dager uten satellittbilde vises som «Ingen satellittdata» over bakgrunnskartet</div>
+      <div class="desc">Dager uten satellittbilde vises som «Ingen satellittbilde» over bakgrunnskartet</div>
     </div>
     <div class="note">
-      <strong>Merk:</strong> Skydekke-prosenten rapporteres av Sentinel for hele satellittscenen som dekkes —
-      ikke bare Vansjø-området spesifikt. Et bilde kan derfor vise høyt skydekke selv om akkurat
+      <strong>Merk:</strong> Skydekke-prosenten rapporteres av Sentinel for hele satellittscenen —
+      ikke bare Vansjø-området spesifikt. Et bilde kan vise høyt skydekke selv om akkurat
       innsjøen er relativt klar, og omvendt.
+      Sentinel-1 radar er skyuavhengig og leverer alltid data uansett vær.
     </div>
   </section>
 
@@ -182,7 +231,7 @@ kbd{
     <div class="row">
       <div class="key">Falskt fargebilde</div>
       <div class="desc">
-        Nær-infrarød kombinasjon — vegetasjon vises <strong style="color:#f87171">rød</strong>,
+        Nær-infrarød kombinasjon (S2) — vegetasjon vises <strong style="color:#f87171">rød</strong>,
         vann <strong style="color:#38bdf8">mørkt blått</strong>.
         <br><small>Egnet for å se plantevekst og snødekke tydelig</small>
       </div>
@@ -190,8 +239,22 @@ kbd{
     <div class="row">
       <div class="key">Naturlig farge</div>
       <div class="desc">
-        Synlig lys (RGB) — ser ut som et vanlig luftfoto
+        Synlig lys RGB (S2) — ser ut som et vanlig luftfoto
       </div>
+    </div>
+    <div class="row">
+      <div class="key">SAR-radar <span class="pro-tag">Pro</span></div>
+      <div class="desc">
+        Sentinel-1 SAR-radardata (VV-polarisering) vist med <strong>jet-fargeskala</strong> —
+        mørk blå ved lavt tilbakespredningssignal (glatt vannoverflate), grønt og rødt
+        ved høyere signal (vegetasjon, bebyggelse).
+        <br><small>Fungerer i all slags vær, også gjennom skyer og om natten</small>
+      </div>
+    </div>
+    <div class="note-pro">
+      <strong>Jet-fargeskala:</strong> blå → cyan → grønn → gul → oransje → rød.
+      Vansjø vil typisk vises i mørk blå siden vannoverflaten gir lite tilbakespredning.
+      Skog og bebyggelse rundt innsjøen vises i varmere farger.
     </div>
   </section>
 
@@ -200,7 +263,7 @@ kbd{
     <div class="row">
       <div class="key">Header-tekst</div>
       <div class="desc">
-        Øverst til høyre vises en estimert dato for neste satellittbilde.
+        Øverst til høyre vises en estimert dato for neste Sentinel-2-satellittbilde.
         Hvis et nyere bilde allerede er tilgjengelig for nedlasting, vises det i
         <span class="cloud-good">grønt</span> med dato og skydekke.
         Estimatet baserer seg på gjennomsnittlig intervall mellom de siste bildene.
@@ -216,31 +279,33 @@ kbd{
         Viser kun satellittbilder med <strong>under 50 % skydekke</strong>.
         Kartplaceholders og skydekte dager skjules.
         Knappen lyser grønt når filteret er aktivt — klikk igjen for å vise alle datoer.
+        <br><small>I pro-modus følger radar-panelet alltid det optiske bildet for samme dato</small>
       </div>
     </div>
   </section>
 
   <section>
-    <h2>Om Sentinel-2 satellittene</h2>
+    <h2>Om Sentinel-satellittene</h2>
     <div class="row">
-      <div class="key">To satellitter</div>
+      <div class="key">Sentinel-2 (optisk)</div>
       <div class="desc">
-        Sentinel-2 består av to søstersatellitter — 2A og 2B — som følger hverandre i bane rundt
-        jorden med et halvt sving mellomrom. Sammen dekker de hele kloden raskere enn én satellitt
-        alene hadde klart.
+        To søstersatellitter — 2A og 2B — som fotograferer jordoverflaten i synlig og
+        nær-infrarødt lys. Over Norge passerer en av dem omtrent <strong>hvert 2–3. dag</strong>,
+        men skydekke avgjør om bildet er brukbart.
       </div>
     </div>
     <div class="row">
-      <div class="key">Hvor ofte?</div>
+      <div class="key">Sentinel-1 (radar) <span class="pro-tag">Pro</span></div>
       <div class="desc">
-        Over Norge passerer en av satellittene omtrent <strong>hvert 2–3. dag</strong>.
-        Ikke alle passeringer gir brukbare bilder — avhenger av skydekke og hvilken stripe av
-        jordoverflaten satellitten fotograferer akkurat den dagen.
+        SAR-radar (Synthetic Aperture Radar) som sender ut mikrobølger og måler tilbakespredning
+        fra overflaten. Uavhengig av skydekke og dagslys — leverer data hele døgnet, hele året.
+        Over Norge er typisk opptaksfrekvens <strong>hvert 6. dag</strong>.
       </div>
     </div>
     <div class="note">
-      Derfor kan det gå flere dager mellom hvert bilde i dashbordet, selv om satellittene er aktive.
-      Dager uten bilde vises som kart.
+      Dager uten bilde (verken optisk eller radar) vises som kart med teksten «Ingen satellittbilde».
+      Alle data fra European Space Agency (ESA) / Copernicus Data Space.
+      Inneholder modifiserte Copernicus Sentinel-data.
     </div>
   </section>
 
@@ -249,22 +314,25 @@ kbd{
     <div class="row">
       <div class="key">↓ Hent-knappen</div>
       <div class="desc">
-        Henter tilgjengelige satellittbilder fra Copernicus de siste 14 dagene.
-        Nye bilder lastes ned automatisk hver dag via en planlagt jobb på serveren.
+        Henter tilgjengelige bilder fra Copernicus for de siste 14 dagene —
+        både Sentinel-2 optisk og Sentinel-1 radar (i pro-modus).
+        Nye bilder lastes ned automatisk hver dag kl. 07 via en planlagt jobb på serveren.
         <br><small>Knappen er nyttig for å trigge en manuell oppdatering</small>
       </div>
     </div>
     <div class="row">
       <div class="key">Automatisk rydding</div>
       <div class="desc">
-        Bilder eldre enn <strong>365 dager</strong> slettes automatisk fra serveren
-        hver gang nye bilder hentes. Historikken begrenses dermed til ett år.
+        Bilder og thumbnails eldre enn <strong>30 dager</strong> slettes automatisk
+        hver gang nye bilder hentes — gjelder både S2 og S1.
       </div>
     </div>
-    <div class="note">
-      <strong>Bildekilde:</strong> Sentinel-2 satellittdata fra
-      European Space Agency (ESA) / Copernicus Data Space.
-      Inneholder modifiserte Copernicus Sentinel-data.
+    <div class="row">
+      <div class="key">Hente-logg</div>
+      <div class="desc">
+        Alle kjøringer loggføres automatisk i <code style="font-family:var(--font-mono);font-size:11px;color:var(--accent)">data/fetch.log</code>
+        med tidsstempel, hvilke bilder som ble lastet ned, eventuelle feil og hva som ble slettet.
+      </div>
     </div>
   </section>
 </div>

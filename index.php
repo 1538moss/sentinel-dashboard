@@ -315,6 +315,68 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text)}
 }
 .notif.show{opacity:1;transform:translateY(0)}
 .notif.error{border-color:var(--danger);color:var(--danger)}
+
+/* ── PRO MODE TEMA ── */
+body.pro-mode{
+  --border:rgba(168,85,247,.22);
+  --accent:#a855f7;
+  --accent-glow:rgba(168,85,247,.08);
+}
+
+/* ── PRO TOGGLE-KNAPP ── */
+.pro-btn{
+  background:transparent;border:1px solid var(--border);color:var(--accent);
+  padding:5px 12px;font-size:10px;letter-spacing:.2em;text-transform:uppercase;
+  font-family:var(--font-mono);cursor:pointer;transition:all .2s;
+}
+.pro-btn:hover{background:var(--accent-glow);border-color:var(--accent)}
+.pro-btn.active{background:rgba(168,85,247,.12);border-color:#a855f7;color:#a855f7}
+@media(max-width:640px){.pro-btn{padding:5px 8px;font-size:9px;letter-spacing:.1em}}
+/* ── MODE-INDIKATOR I LOGO ── */
+.mode-badge{
+  font-family:var(--font-mono);font-size:9px;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--accent);opacity:.8;margin-left:6px;white-space:nowrap;
+}
+@media(max-width:640px){.mode-badge{display:none}}
+
+/* ── PRO SPLIT-VISNING ── */
+.pro-split{
+  display:flex;align-items:stretch;gap:2px;
+  width:100%;height:100%;
+  border:1px solid rgba(168,85,247,.35);
+  background:rgba(168,85,247,.08);
+}
+.pro-panel{
+  position:relative;flex:1 1 0;min-width:0;
+  display:flex;align-items:center;justify-content:center;
+  overflow:hidden;background:var(--bg);
+}
+/* Bilder i paneler: fjern original ramme-styling, la img fylle panelet */
+.pro-panel .img-frame{
+  border:none;box-shadow:none;
+  display:flex;align-items:center;justify-content:center;
+  width:100%;height:100%;max-width:none;max-height:none;
+}
+.pro-panel .img-frame img{
+  max-width:100%;max-height:100%;
+  width:auto;height:auto;object-fit:contain;
+}
+/* Kart-placeholder i panel: vis kartet som bakgrunn */
+.pro-panel .img-frame.map-only{
+  background-image:url('mapbg.php?v=2');
+  background-size:contain;
+  background-position:center;
+  background-repeat:no-repeat;
+}
+.pro-label{
+  position:absolute;top:8px;left:8px;z-index:4;
+  font-family:var(--font-mono);font-size:9px;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--accent);background:rgba(7,7,15,.78);
+  padding:3px 8px;border:1px solid var(--border);pointer-events:none;
+}
+.pro-label-radar{top:auto;bottom:8px;}
+
+@media(max-width:640px){.pro-split{flex-direction:column}}
 </style>
 </head>
 <body>
@@ -324,11 +386,13 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text)}
   <div class="hdr-logo">
     <div class="pulse"></div>
     Sentinel Dashboard
+    <span class="mode-badge" id="mode-badge">[STD mode]</span>
   </div>
   <div class="hdr-center" id="aoi-label">—</div>
   <div class="hdr-right">
     <div class="next-badge" id="next-badge"></div>
     <span id="counter">— / —</span>
+    <button class="pro-btn" id="pro-btn" onclick="toggleProMode()">Pro</button>
     <button class="filter-btn" id="filter-btn" onclick="toggleFilter()" title="Vis kun bilder med under 50 % skydekke">
       ☁ &lt;50%
     </button>
@@ -366,10 +430,13 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text)}
 const API = 'api.php';
 const FETCH_TOKEN = <?= json_encode($cfg['fetch_token'] ?? '') ?>;
 let allImages = [];
+let primaryImages = [];
+let s1ByDate = {};
 let images = [];
 let idx = 0;
 let flashTimer = null;
 let filterActive = false;
+let proMode = localStorage.getItem('proMode') === '1';
 
 // ── Data ────────────────────────────────────────────────────────────────────
 async function loadImages() {
@@ -380,7 +447,14 @@ async function loadImages() {
 
     document.getElementById('aoi-label').textContent = data.aoi || '';
     allImages = data.images || [];
-    images = filterActive ? applyFilter(allImages) : allImages;
+
+    s1ByDate = {};
+    primaryImages = [];
+    for (const img of allImages) {
+      if (img.sensor === 'S1' || img.type === 'radar') s1ByDate[img.date] = img;
+      else primaryImages.push(img);
+    }
+    images = filterActive ? applyFilter(primaryImages) : primaryImages;
 
     if (images.length === 0) {
       showEmptyState();
@@ -445,7 +519,7 @@ function applyFilter(list) {
 function toggleFilter() {
   filterActive = !filterActive;
   document.getElementById('filter-btn').classList.toggle('active', filterActive);
-  images = filterActive ? applyFilter(allImages) : allImages;
+  images = filterActive ? applyFilter(primaryImages) : primaryImages;
   if (images.length === 0) {
     showEmptyState();
     return;
@@ -455,7 +529,85 @@ function toggleFilter() {
   goTo(0);
 }
 
+// ── Pro mode toggle ──────────────────────────────────────────────────────────
+function toggleProMode() {
+  proMode = !proMode;
+  localStorage.setItem('proMode', proMode ? '1' : '0');
+  document.body.classList.toggle('pro-mode', proMode);
+  updateProBtn();
+  buildSlides();
+  if (images.length > 0) goTo(idx);
+}
+
+function updateProBtn() {
+  const btn = document.getElementById('pro-btn');
+  btn.textContent = proMode ? 'Std' : 'Pro';
+  btn.classList.toggle('active', proMode);
+  document.getElementById('mode-badge').textContent = proMode ? '[PRO mode]' : '[STD mode]';
+}
+
 // ── Build slides ─────────────────────────────────────────────────────────────
+function buildNoDataFrame(label) {
+  const frame = document.createElement('div');
+  frame.className = 'img-frame map-only';
+  ['tl','tr','bl','br'].forEach(pos => {
+    const c = document.createElement('span');
+    c.className = `corner corner-${pos}`;
+    frame.appendChild(c);
+  });
+  const lbl = document.createElement('div');
+  lbl.className = 'no-data-label';
+  lbl.textContent = label;
+  frame.appendChild(lbl);
+  return frame;
+}
+
+function buildImgFrame(img, i) {
+  if (img.type === 'map') return buildNoDataFrame('Ingen satellittbilde');
+
+  const frame = document.createElement('div');
+  frame.className = 'img-frame';
+  ['tl','tr','bl','br'].forEach(pos => {
+    const c = document.createElement('span');
+    c.className = `corner corner-${pos}`;
+    frame.appendChild(c);
+  });
+
+  const el = document.createElement('img');
+  el.src = `images/${img.filename}`;
+  el.alt = img.date;
+  el.loading = i === 0 ? 'eager' : 'lazy';
+  el.addEventListener('click', e => { e.stopPropagation(); if (zoomState?.dragMoved) return; toggleZoom(el, frame, e); });
+  frame.appendChild(el);
+
+  if (img.cloud_cover !== null && img.cloud_cover > 50) {
+    const ov = document.createElement('img');
+    ov.src       = 'overlay.php';
+    ov.className = 'lake-overlay';
+    ov.alt       = '';
+    ov.onerror   = () => ov.remove();
+    frame.appendChild(ov);
+  }
+  return frame;
+}
+
+function buildS1Frame(s1) {
+  const frame = document.createElement('div');
+  frame.className = 'img-frame';
+  ['tl','tr','bl','br'].forEach(pos => {
+    const c = document.createElement('span');
+    c.className = `corner corner-${pos}`;
+    frame.appendChild(c);
+  });
+  const el = document.createElement('img');
+  el.src     = `images/${s1.filename}`;
+  el.alt     = s1.date + ' SAR';
+  el.loading = 'lazy';
+  el.addEventListener('click', e => { e.stopPropagation(); if (zoomState?.dragMoved) return; toggleZoom(el, frame, e); });
+  frame.appendChild(el);
+  return frame;
+}
+
 function buildSlides() {
   const stage = document.getElementById('stage');
   stage.innerHTML = '';
@@ -465,45 +617,36 @@ function buildSlides() {
     slide.className = 'slide';
     slide.dataset.idx = i;
 
-    const frame = document.createElement('div');
-    frame.className = 'img-frame';
-    ['tl','tr','bl','br'].forEach(pos => {
-      const c = document.createElement('span');
-      c.className = `corner corner-${pos}`;
-      frame.appendChild(c);
-    });
+    if (proMode) {
+      const split = document.createElement('div');
+      split.className = 'pro-split';
 
-    if (img.type === 'map') {
-      frame.classList.add('map-only');
-      const lbl = document.createElement('div');
-      lbl.className = 'no-data-label';
-      lbl.textContent = 'Ingen satellittbilde';
-      frame.appendChild(lbl);
+      const lp = document.createElement('div');
+      lp.className = 'pro-panel';
+      const llabel = document.createElement('div');
+      llabel.className = 'pro-label';
+      llabel.textContent = 'Optisk';
+      lp.appendChild(llabel);
+      lp.appendChild(buildImgFrame(img, i));
+
+      const rp = document.createElement('div');
+      rp.className = 'pro-panel';
+      const rlabel = document.createElement('div');
+      rlabel.className = 'pro-label pro-label-radar';
+      rlabel.textContent = 'Radar';
+      rp.appendChild(rlabel);
+      const s1 = s1ByDate[img.date];
+      rp.appendChild(s1?.filename ? buildS1Frame(s1) : buildNoDataFrame('Ingen radardata'));
+
+      split.appendChild(lp);
+      split.appendChild(rp);
+      slide.appendChild(split);
     } else {
-      const el = document.createElement('img');
-      el.src = `images/${img.filename}`;
-      el.alt = img.date;
-      el.loading = i === 0 ? 'eager' : 'lazy';
-      el.addEventListener('click', e => { e.stopPropagation(); if (zoomState?.dragMoved) return; toggleZoom(el, frame, e); });
-      frame.appendChild(el);
-
-      if (img.cloud_cover !== null && img.cloud_cover > 50) {
-        const ov = document.createElement('img');
-        ov.src       = 'overlay.php';
-        ov.className = 'lake-overlay';
-        ov.alt       = '';
-        ov.onerror   = () => ov.remove();
-        frame.appendChild(ov);
-      }
+      slide.appendChild(buildImgFrame(img, i));
     }
 
-    // Nav prev
-    const prev = navBtn('‹', 'nav nav-prev', () => goTo(idx - 1));
-    const next = navBtn('›', 'nav nav-next', () => goTo(idx + 1));
-
-    slide.appendChild(frame);
-    slide.appendChild(prev);
-    slide.appendChild(next);
+    slide.appendChild(navBtn('‹', 'nav nav-prev', () => goTo(idx - 1)));
+    slide.appendChild(navBtn('›', 'nav nav-next', () => goTo(idx + 1)));
     stage.appendChild(slide);
   });
 }
@@ -658,17 +801,22 @@ document.addEventListener('mouseup', () => {
   zoomState.imgEl.classList.remove('panning');
 });
 
+let swipeStart = null;
+
 document.addEventListener('touchstart', e => {
-  if (!zoomState || !e.target.closest('.img-frame.zoomed')) return;
   if (e.touches.length !== 1) return;
   const t = e.touches[0];
-  zoomState.isPanning  = true;
-  zoomState.dragMoved  = false;
-  zoomState.dragStartX = t.clientX;
-  zoomState.dragStartY = t.clientY;
-  zoomState.startX     = t.clientX - zoomState.panX;
-  zoomState.startY     = t.clientY - zoomState.panY;
-  zoomState.imgEl.classList.add('panning');
+  if (zoomState && e.target.closest('.img-frame.zoomed')) {
+    zoomState.isPanning  = true;
+    zoomState.dragMoved  = false;
+    zoomState.dragStartX = t.clientX;
+    zoomState.dragStartY = t.clientY;
+    zoomState.startX     = t.clientX - zoomState.panX;
+    zoomState.startY     = t.clientY - zoomState.panY;
+    zoomState.imgEl.classList.add('panning');
+  } else if (!zoomState) {
+    swipeStart = { x: t.clientX, y: t.clientY };
+  }
 }, { passive: true });
 
 document.addEventListener('touchmove', e => {
@@ -683,10 +831,20 @@ document.addEventListener('touchmove', e => {
   applyZoomTransform();
 }, { passive: false });
 
-document.addEventListener('touchend', () => {
-  if (!zoomState) return;
-  zoomState.isPanning = false;
-  zoomState.imgEl.classList.remove('panning');
+document.addEventListener('touchend', e => {
+  if (zoomState) {
+    zoomState.isPanning = false;
+    zoomState.imgEl.classList.remove('panning');
+  } else if (swipeStart) {
+    const t = e.changedTouches[0];
+    const dx = t.clientX - swipeStart.x;
+    const dy = t.clientY - swipeStart.y;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
+      if (dx < 0) goTo(idx + 1); // swipe venstre = eldre bilde
+      else         goTo(idx - 1); // swipe høyre = nyere bilde
+    }
+    swipeStart = null;
+  }
 });
 
 // ── Keyboard ─────────────────────────────────────────────────────────────────
@@ -751,6 +909,8 @@ function formatDateShort(dateStr) {
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
+document.body.classList.toggle('pro-mode', proMode);
+updateProBtn();
 loadImages();
 loadNext();
 </script>

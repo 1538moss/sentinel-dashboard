@@ -61,11 +61,13 @@ try {
             $fetcher  = new SentinelFetcher($config);
             $metadata = $fetcher->loadMetadata();
 
-            // Finn siste ekte satellittbilde (ikke kart)
+            // Finn siste ekte S2-bilde (ikke kart, ikke S1-radar)
             $latestDate = null;
             $imageDates = [];
             foreach ($metadata as $m) {
-                if (($m['type'] ?? '') !== 'map' && !empty($m['filename'])) {
+                if (($m['type'] ?? '') === 'map') continue;
+                if (($m['sensor'] ?? '') === 'S1') continue;
+                if (!empty($m['filename'])) {
                     if ($latestDate === null) $latestDate = $m['date'];
                     $imageDates[] = $m['date'];
                 }
