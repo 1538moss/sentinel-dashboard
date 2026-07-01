@@ -292,6 +292,13 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text)}
   padding:3px 2px 2px;letter-spacing:.05em;
 }
 .tl-item.active .tl-label{color:var(--accent)}
+.tl-badges{position:absolute;top:2px;right:2px;display:flex;gap:2px}
+.tl-badge{
+  font-family:var(--font-mono);font-size:7px;font-weight:700;
+  padding:1px 3px;line-height:1.4;letter-spacing:.03em;
+}
+.tl-badge-o{background:rgba(56,189,248,.88);color:#07070f}
+.tl-badge-r{background:rgba(168,85,247,.88);color:#fff}
 
 /* ── MOBILE ── */
 @media(max-width:640px){
@@ -685,6 +692,19 @@ function buildTimeline() {
 
     item.appendChild(thumb);
     item.appendChild(label);
+
+    if (proMode) {
+      const hasO = img.type !== 'map' && !!img.filename;
+      const hasR = !!s1ByDate[img.date]?.filename;
+      if (hasO || hasR) {
+        const badges = document.createElement('div');
+        badges.className = 'tl-badges';
+        if (hasO) { const b = document.createElement('span'); b.className = 'tl-badge tl-badge-o'; b.textContent = 'O'; badges.appendChild(b); }
+        if (hasR) { const b = document.createElement('span'); b.className = 'tl-badge tl-badge-r'; b.textContent = 'R'; badges.appendChild(b); }
+        item.appendChild(badges);
+      }
+    }
+
     tl.appendChild(item);
   });
 }

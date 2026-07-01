@@ -147,41 +147,6 @@ kbd{
   </section>
 
   <section>
-    <h2>Visningsmodus</h2>
-    <div class="row">
-      <div class="key">Std-modus</div>
-      <div class="desc">
-        Standard visning — ett fullskjermbilde per dag fra <strong>Sentinel-2</strong> (optisk kamera).
-        Header-temaet er <span style="color:#38bdf8">cyan</span>.
-      </div>
-    </div>
-    <div class="row">
-      <div class="key">Pro-modus <span class="pro-tag">Pro</span></div>
-      <div class="desc">
-        To bilder side om side per dag — <strong>Optisk</strong> (Sentinel-2) til venstre og
-        <strong>Radar</strong> (Sentinel-1 SAR) til høyre.
-        Header-temaet skifter til <span style="color:#a855f7">lilla</span> som visuell indikator.
-        På mobil stables bildene vertikalt.
-      </div>
-    </div>
-    <div class="row">
-      <div class="key">Pro-knappen</div>
-      <div class="desc">
-        Klikk <kbd>Pro</kbd> for å aktivere pro-modus. Knappen viser da <kbd>Std</kbd> for å gå tilbake.
-        Aktuell modus vises også ved siden av logonavnet: <strong>[PRO mode]</strong> eller <strong>[STD mode]</strong>.
-        Valget huskes i nettleseren.
-      </div>
-    </div>
-    <div class="row">
-      <div class="key">Ingen data</div>
-      <div class="desc">
-        Mangler optisk bilde for en dato vises bakgrunnskartet med teksten «Ingen satellittbilde».
-        Mangler radardata vises tilsvarende «Ingen radardata» i høyre panel.
-      </div>
-    </div>
-  </section>
-
-  <section>
     <h2>Zoom og panorering</h2>
     <div class="row">
       <div class="key">Klikk / trykk</div>
@@ -194,6 +159,33 @@ kbd{
     <div class="row">
       <div class="key"><kbd>Escape</kbd></div>
       <div class="desc">Tilbakestill zoom</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Std og Pro-modus</h2>
+    <div class="row">
+      <div class="key">Std</div>
+      <div class="desc">
+        Standard visning — ett fullskjermbilde per dag fra <strong>Sentinel-2</strong> (optisk kamera).
+        Header-temaet er <span style="color:#38bdf8">cyan</span>.
+      </div>
+    </div>
+    <div class="row">
+      <div class="key">Pro <span class="pro-tag">Pro</span></div>
+      <div class="desc">
+        To bilder side om side — <strong>optisk</strong> (Sentinel-2) til venstre og
+        <strong>radar</strong> (Sentinel-1 SAR) til høyre.
+        Header-temaet skifter til <span style="color:#a855f7">lilla</span>.
+        På mobil vises bildene under hverandre.
+      </div>
+    </div>
+    <div class="row">
+      <div class="key">Bytte modus</div>
+      <div class="desc">
+        Klikk <kbd>Pro</kbd> for å aktivere pro-modus — knappen viser da <kbd>Std</kbd> for å gå tilbake.
+        Valget huskes til neste gang du åpner siden.
+      </div>
     </div>
   </section>
 
@@ -211,18 +203,20 @@ kbd{
       <div class="key"><span class="cloud-bad">● Rød</span></div>
       <div class="desc">
         Over 50 % skydekke — mye skyer i bildet.
-        Ved høyt skydekke vises en konturoverlayer av <strong>Vansjø</strong> oppå bildet som referanse.
+        Ved høyt skydekke vises en kontur av <strong>Vansjø</strong> oppå bildet som referanse.
       </div>
     </div>
     <div class="row">
-      <div class="key">Kart</div>
-      <div class="desc">Dager uten satellittbilde vises som «Ingen satellittbilde» over bakgrunnskartet</div>
+      <div class="key">☁ &lt;50%-knappen</div>
+      <div class="desc">
+        Skjuler dager med over 50 % skydekke og dager uten satellittbilde.
+        Knappen lyser grønt når filteret er aktivt — klikk igjen for å vise alle datoer.
+      </div>
     </div>
     <div class="note">
-      <strong>Merk:</strong> Skydekke-prosenten rapporteres av Sentinel for hele satellittscenen —
-      ikke bare Vansjø-området spesifikt. Et bilde kan vise høyt skydekke selv om akkurat
-      innsjøen er relativt klar, og omvendt.
-      Sentinel-1 radar er skyuavhengig og leverer alltid data uansett vær.
+      <strong>Merk:</strong> Skydekke-prosenten gjelder hele satellittscenen, ikke bare Vansjø-området.
+      Et bilde kan vise høyt skydekke selv om akkurat innsjøen er klar, og omvendt.
+      Sentinel-1 radar er <strong>ikke påvirket av skydekke</strong> og leverer data i all slags vær.
     </div>
   </section>
 
@@ -231,111 +225,58 @@ kbd{
     <div class="row">
       <div class="key">Falskt fargebilde</div>
       <div class="desc">
-        Nær-infrarød kombinasjon (S2) — vegetasjon vises <strong style="color:#f87171">rød</strong>,
+        Nær-infrarød kombinasjon — vegetasjon vises <strong style="color:#f87171">rød</strong>,
         vann <strong style="color:#38bdf8">mørkt blått</strong>.
-        <br><small>Egnet for å se plantevekst og snødekke tydelig</small>
+        Tydelig for å følge plantevekst og snødekke gjennom sesongen.
       </div>
     </div>
     <div class="row">
       <div class="key">Naturlig farge</div>
       <div class="desc">
-        Synlig lys RGB (S2) — ser ut som et vanlig luftfoto
+        Synlig lys (RGB) — ser ut som et vanlig luftfoto
       </div>
     </div>
     <div class="row">
       <div class="key">SAR-radar <span class="pro-tag">Pro</span></div>
       <div class="desc">
-        Sentinel-1 SAR-radardata (VV-polarisering) vist med <strong>jet-fargeskala</strong> —
-        mørk blå ved lavt tilbakespredningssignal (glatt vannoverflate), grønt og rødt
-        ved høyere signal (vegetasjon, bebyggelse).
-        <br><small>Fungerer i all slags vær, også gjennom skyer og om natten</small>
-      </div>
-    </div>
-    <div class="note-pro">
-      <strong>Jet-fargeskala:</strong> blå → cyan → grønn → gul → oransje → rød.
-      Vansjø vil typisk vises i mørk blå siden vannoverflaten gir lite tilbakespredning.
-      Skog og bebyggelse rundt innsjøen vises i varmere farger.
-    </div>
-  </section>
-
-  <section>
-    <h2>Neste bilde</h2>
-    <div class="row">
-      <div class="key">Header-tekst</div>
-      <div class="desc">
-        Øverst til høyre vises en estimert dato for neste Sentinel-2-satellittbilde.
-        Hvis et nyere bilde allerede er tilgjengelig for nedlasting, vises det i
-        <span class="cloud-good">grønt</span> med dato og skydekke.
-        Estimatet baserer seg på gjennomsnittlig intervall mellom de siste bildene.
+        Sentinel-1 radarbilde vist med jet-fargeskala.
+        <strong style="color:#38bdf8">Blå</strong> = glatt overflate / vann (lavt signal),
+        <strong style="color:#34d399">grønn</strong> og <strong style="color:#f87171">rød</strong> = vegetasjon og bebyggelse (høyt signal).
+        Fungerer gjennom skyer og om natten.
       </div>
     </div>
   </section>
 
   <section>
-    <h2>Filtrering</h2>
+    <h2>Om satellittene</h2>
     <div class="row">
-      <div class="key">☁ &lt;50%-knappen</div>
+      <div class="key">Sentinel-2</div>
       <div class="desc">
-        Viser kun satellittbilder med <strong>under 50 % skydekke</strong>.
-        Kartplaceholders og skydekte dager skjules.
-        Knappen lyser grønt når filteret er aktivt — klikk igjen for å vise alle datoer.
-        <br><small>I pro-modus følger radar-panelet alltid det optiske bildet for samme dato</small>
-      </div>
-    </div>
-  </section>
-
-  <section>
-    <h2>Om Sentinel-satellittene</h2>
-    <div class="row">
-      <div class="key">Sentinel-2 (optisk)</div>
-      <div class="desc">
-        To søstersatellitter — 2A og 2B — som fotograferer jordoverflaten i synlig og
-        nær-infrarødt lys. Over Norge passerer en av dem omtrent <strong>hvert 2–3. dag</strong>,
+        Optisk kamera som fotograferer i synlig og nær-infrarødt lys.
+        Passerer over Norge omtrent <strong>hvert 2–3. dag</strong>,
         men skydekke avgjør om bildet er brukbart.
       </div>
     </div>
     <div class="row">
-      <div class="key">Sentinel-1 (radar) <span class="pro-tag">Pro</span></div>
+      <div class="key">Sentinel-1 <span class="pro-tag">Pro</span></div>
       <div class="desc">
-        SAR-radar (Synthetic Aperture Radar) som sender ut mikrobølger og måler tilbakespredning
-        fra overflaten. Uavhengig av skydekke og dagslys — leverer data hele døgnet, hele året.
-        Over Norge er typisk opptaksfrekvens <strong>hvert 6. dag</strong>.
+        SAR-radar som sender ut mikrobølger og måler tilbakespredning fra overflaten.
+        Uavhengig av skydekke og dagslys — passerer over Norge omtrent <strong>hvert 6. dag</strong>.
+      </div>
+    </div>
+    <div class="row">
+      <div class="key">Ingen bilde</div>
+      <div class="desc">
+        Dager uten tilgjengelig satellittbilde vises med bakgrunnskartet og teksten «Ingen satellittbilde».
+        Dette er normalt og skyldes at satellitten fotograferte et annet område den dagen.
       </div>
     </div>
     <div class="note">
-      Dager uten bilde (verken optisk eller radar) vises som kart med teksten «Ingen satellittbilde».
-      Alle data fra European Space Agency (ESA) / Copernicus Data Space.
+      Data fra European Space Agency (ESA) / Copernicus Data Space.
       Inneholder modifiserte Copernicus Sentinel-data.
     </div>
   </section>
 
-  <section>
-    <h2>Hent nye bilder</h2>
-    <div class="row">
-      <div class="key">↓ Hent-knappen</div>
-      <div class="desc">
-        Henter tilgjengelige bilder fra Copernicus for de siste 14 dagene —
-        både Sentinel-2 optisk og Sentinel-1 radar (i pro-modus).
-        Nye bilder lastes ned automatisk hver dag kl. 07 via en planlagt jobb på serveren.
-        <br><small>Knappen er nyttig for å trigge en manuell oppdatering</small>
-      </div>
-    </div>
-    <div class="row">
-      <div class="key">Automatisk rydding</div>
-      <div class="desc">
-        Bilder og thumbnails eldre enn <strong>30 dager</strong> slettes automatisk
-        hver gang nye bilder hentes — gjelder både S2 og S1.
-      </div>
-    </div>
-    <div class="row">
-      <div class="key">Hente-logg</div>
-      <div class="desc">
-        Alle kjøringer loggføres automatisk i <code style="font-family:var(--font-mono);font-size:11px;color:var(--accent)">data/fetch.log</code>
-        med tidsstempel, hvilke bilder som ble lastet ned, eventuelle feil og hva som ble slettet.
-      </div>
-    </div>
-  </section>
 </div>
-
 </body>
 </html>
