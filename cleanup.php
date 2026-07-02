@@ -21,14 +21,24 @@ foreach ($dates as $d) {
 
 $config = require __DIR__ . '/config.php';
 
-// Slett bildefiler
+// Slett bildefiler, thumbnails og S1-radarfiler
 foreach ($dates as $d) {
-    $path = $config['images_dir'] . $d . '.png';
-    if (file_exists($path)) {
-        unlink($path);
-        echo "  🗑  Slettet fil: $d.png\n";
-    } else {
-        echo "  –   Ingen fil:  $d.png\n";
+    $targets = [
+        $config['images_dir'] . $d . '.png',
+        $config['images_dir'] . $d . '-s1.png',
+        $config['thumbs_dir'] . $d . '.jpg',
+        $config['thumbs_dir'] . $d . '-s1.jpg',
+    ];
+    $found = false;
+    foreach ($targets as $path) {
+        if (file_exists($path)) {
+            unlink($path);
+            echo "  🗑  Slettet fil: " . basename($path) . "\n";
+            $found = true;
+        }
+    }
+    if (!$found) {
+        echo "  –   Ingen filer: $d\n";
     }
 }
 

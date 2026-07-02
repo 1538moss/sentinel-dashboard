@@ -1,13 +1,11 @@
 # Beskytt config og data mot direkte henting
 <FilesMatch "^(config|fetch|cleanup|generate_thumbs)\.php$">
-    Order deny,allow
-    Deny from all
+    Require all denied
 </FilesMatch>
 
 # Blokker .env-filer hvis de havner i webroot
 <FilesMatch "^\.env|\.sentinel\.env">
-    Order deny,allow
-    Deny from all
+    Require all denied
 </FilesMatch>
 
 <IfModule mod_rewrite.c>

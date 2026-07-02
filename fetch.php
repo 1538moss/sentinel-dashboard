@@ -67,7 +67,7 @@ class SentinelFetcher
                 "Mangler Sentinel Hub OAuth2-klient.\n" .
                 "Opprett OAuth-klient på https://shapps.dataspace.copernicus.eu/dashboard/#/account/settings\n" .
                 "→ OAuth Clients → Create client (grant type: client_credentials)\n" .
-                "Lim inn client_id og client_secret i config.php under 'sh'."
+                "Lim inn SH_CLIENT_ID og SH_CLIENT_SECRET i .sentinel.env (ett nivå opp fra webroot)."
             );
         }
 
@@ -417,10 +417,11 @@ JS;
 
     public function saveMetadata(array $data): void
     {
-        file_put_contents(
-            $this->config['metadata_file'],
-            json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)
-        );
+        // Atomisk skriving: samtidige lesninger fra api.php skal aldri se halvferdig JSON
+        $file = $this->config['metadata_file'];
+        $tmp  = $file . '.tmp.' . getmypid();
+        file_put_contents($tmp, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE), LOCK_EX);
+        rename($tmp, $file);
     }
 
     // ── Hoved-kjøring ─────────────────────────────────────────────────────────

@@ -274,6 +274,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text)}
   background:#0d0d1a;
 }
 .tl-item:hover{border-color:rgba(56,189,248,.5)}
+.tl-item:focus-visible{outline:none;border-color:var(--accent);box-shadow:0 0 10px var(--accent-glow)}
 .tl-item.active{
   border-color:var(--accent);
   box-shadow:0 0 10px var(--accent-glow);
@@ -500,7 +501,11 @@ async function triggerFetch() {
   notify('Henter bilder fra Copernicus…');
 
   try {
-    const res = await fetch(`${API}?action=fetch&token=${encodeURIComponent(FETCH_TOKEN)}`);
+    const res = await fetch(`${API}?action=fetch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'token=' + encodeURIComponent(FETCH_TOKEN),
+    });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
 
@@ -653,16 +658,17 @@ function buildSlides() {
       slide.appendChild(buildImgFrame(img, i));
     }
 
-    slide.appendChild(navBtn('‹', 'nav nav-prev', () => goTo(idx - 1)));
-    slide.appendChild(navBtn('›', 'nav nav-next', () => goTo(idx + 1)));
+    slide.appendChild(navBtn('‹', 'nav nav-prev', () => goTo(idx - 1), 'Nyere bilde'));
+    slide.appendChild(navBtn('›', 'nav nav-next', () => goTo(idx + 1), 'Eldre bilde'));
     stage.appendChild(slide);
   });
 }
 
-function navBtn(label, cls, fn) {
+function navBtn(label, cls, fn, ariaLabel) {
   const b = document.createElement('button');
   b.className = cls;
   b.textContent = label;
+  b.setAttribute('aria-label', ariaLabel);
   b.onclick = fn;
   return b;
 }
@@ -676,22 +682,35 @@ function buildTimeline() {
     const item = document.createElement('div');
     item.className = 'tl-item';
     item.dataset.idx = i;
+    item.setAttribute('role', 'button');
+    item.setAttribute('tabindex', '0');
+    item.setAttribute('aria-label', formatDate(img.date) + (img.type === 'map' ? ' — ingen satellittbilde' : ''));
     item.onclick = () => goTo(i);
-
-    const thumb = document.createElement('img');
-    thumb.src     = img.thumbnail ? `images/thumbs/${img.thumbnail}` : `images/${img.filename}`;
-    thumb.alt     = img.date;
-    thumb.loading = 'lazy';
-    thumb.onerror = () => {
-      if (img.filename) thumb.src = `images/${img.filename}`;
-      else thumb.style.display = 'none';
+    item.onkeydown = e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goTo(i); }
     };
+
+    if (img.thumbnail || img.filename) {
+      const thumb = document.createElement('img');
+      thumb.src     = img.thumbnail ? `images/thumbs/${img.thumbnail}` : `images/${img.filename}`;
+      thumb.alt     = img.date;
+      thumb.loading = 'lazy';
+      thumb.onerror = () => {
+        thumb.onerror = () => { thumb.style.display = 'none'; };
+        if (img.filename) thumb.src = `images/${img.filename}`;
+        else thumb.style.display = 'none';
+      };
+      item.appendChild(thumb);
+    } else {
+      const ph = document.createElement('div');
+      ph.className = 'tl-placeholder';
+      ph.textContent = 'kart';
+      item.appendChild(ph);
+    }
 
     const label = document.createElement('div');
     label.className = 'tl-label';
     label.textContent = formatDateShort(img.date);
-
-    item.appendChild(thumb);
     item.appendChild(label);
 
     if (proMode) {
@@ -882,15 +901,16 @@ function showEmptyState() {
   document.getElementById('stage').innerHTML = `
     <div class="state-box">
       <h2>Ingen bilder lagret ennå</h2>
-      <p>Konfigurer CDSE-legitimasjon i <strong>config.php</strong>, deretter hent bilder.</p>
+      <p>Legg CDSE-legitimasjon i <strong>.sentinel.env</strong> (ett nivå opp fra webroot), deretter hent bilder.</p>
       <code>
-// config.php<br>
-'username' =&gt; 'din@epost.no',<br>
-'password' =&gt; 'ditt-passord',
+; .sentinel.env<br>
+SH_CLIENT_ID=...<br>
+SH_CLIENT_SECRET=...<br>
+FETCH_TOKEN=...
       </code>
       <p style="margin-top:8px">
-        Registrer gratis konto på
-        <strong>dataspace.copernicus.eu</strong>
+        Opprett OAuth-klient (grant: client_credentials) på
+        <strong>shapps.dataspace.copernicus.eu</strong> → Account settings → OAuth Clients
         — klikk deretter <em>↓ Hent</em> oppe til høyre.
       </p>
     </div>`;
@@ -899,11 +919,13 @@ function showEmptyState() {
 }
 
 function showErrorState(msg) {
-  document.getElementById('stage').innerHTML = `
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `
     <div class="state-box">
       <h2>Feil ved lasting</h2>
-      <p>${msg}</p>
+      <p></p>
     </div>`;
+  stage.querySelector('p').textContent = msg;
 }
 
 // ── Notification ──────────────────────────────────────────────────────────────

@@ -49,7 +49,7 @@ FETCH_TOKEN=...   # Generer: php -r "echo bin2hex(random_bytes(24));"
 ```
 
 ### Fetch-token
-`?action=fetch` krever `?token=<FETCH_TOKEN>` — frontend sender det automatisk (rendret server-side via PHP i `index.php`).
+`?action=fetch` krever POST med `token=<FETCH_TOKEN>` i body — frontend sender det automatisk (rendret server-side via PHP i `index.php`). Tokenet er synlig i frontend-kildekoden, så den reelle beskyttelsen mot kvote-misbruk er rate-limiten: maks én web-utløst henting per 10. minutt (`data/fetch_last_run`). Cron via CLI berøres ikke.
 
 ---
 
@@ -60,9 +60,10 @@ FETCH_TOKEN=...   # Generer: php -r "echo bin2hex(random_bytes(24));"
 'fetch_token'     => env('FETCH_TOKEN')
 'aoi'             => [west, east, south, north, name]   // WGS84
 'render_mode'     => 'false_color'   // eller 'true_color'
+'product'         => 'pro'           // 'std' = kun S2 optisk | 'pro' = S2 + S1 SAR-radar
 'max_cloud_cover' => 100
 'days_to_search'  => 14
-'keep_days'       => 365             // bilder eldre enn dette slettes automatisk
+'keep_days'       => 30              // bilder eldre enn dette slettes automatisk
 'image_width'     => 1024
 'image_height'    => 1024
 'images_dir'      => __DIR__ . '/images/'
@@ -81,9 +82,9 @@ OAuth2-klient opprettes på: https://shapps.dataspace.copernicus.eu/dashboard/#/
 | Action | Beskrivelse |
 |--------|-------------|
 | `?action=list` | Alle bilder (kun de med fil på disk + kart-oppføringer) |
-| `?action=fetch&token=X` | Henter nye bilder fra Copernicus — krever fetch-token |
-| `?action=status` | Antall bilder, AOI-info, om credentials er satt |
-| `?action=next` | Sjekker om nyere bilde er tilgjengelig i katalogen, eller estimerer neste dato |
+| `?action=fetch` | Henter nye bilder fra Copernicus — krever POST med `token` i body, rate-limitet til én kjøring per 10. min |
+| `?action=status` | Antall ekte bilder, AOI-info, om credentials er satt, nyeste S2-bilde |
+| `?action=next` | Sjekker om nyere bilde er tilgjengelig i katalogen, eller estimerer neste dato — svaret caches i 15 min (`data/next_cache.json`) |
 
 ---
 
@@ -126,7 +127,7 @@ Begge bruker `dataMask` som alpha-kanal (transparent der satellitten ikke har da
 
 | Tast | Handling |
 |------|---------|
-| `←` / `→` | Eldre / nyere bilde |
+| `←` / `→` | Nyere / eldre bilde |
 | `Home` / `End` | Nyeste / eldste |
 | `Escape` | Tilbakestill zoom |
 

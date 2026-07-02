@@ -34,7 +34,8 @@ rsync -avz --delete \
 echo "--- rettigheter ---"
 ssh "${SERVER_USER}@${SERVER_HOST}" \
     "sudo chown -R www-data:www-data ${APP_DIR} && \
-     sudo chmod -R 755 ${APP_DIR} && \
+     sudo find ${APP_DIR} -type d -exec chmod 755 {} + && \
+     sudo find ${APP_DIR} -type f -exec chmod 644 {} + && \
      sudo chmod -R 775 ${APP_DIR}/images ${APP_DIR}/data"
 
 echo "--- reload apache ---"

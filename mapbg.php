@@ -51,17 +51,19 @@ $ctx    = stream_context_create(['http' => [
     'timeout' => 10,
 ]]);
 
+$failedTiles = 0;
 for ($y = $y1; $y <= $y2; $y++) {
     for ($x = $x1; $x <= $x2; $x++) {
         $url  = "https://a.basemaps.cartocdn.com/dark_all/$zoom/$x/$y.png";
         $data = @file_get_contents($url, false, $ctx);
-        if ($data === false) continue;
-        $tile = @imagecreatefromstring($data);
+        $tile = ($data !== false) ? @imagecreatefromstring($data) : false;
         if ($tile) {
             imagecopy($canvas, $tile,
                 ($x - $x1) * $tileSize, ($y - $y1) * $tileSize,
                 0, 0, $tileSize, $tileSize);
             imagedestroy($tile);
+        } else {
+            $failedTiles++;
         }
     }
 }
@@ -84,7 +86,13 @@ $out = imagecreatetruecolor($outW, $outH);
 imagecopyresampled($out, $canvas, 0, 0, $srcX, $srcY, $outW, $outH, $srcW, $srcH);
 imagedestroy($canvas);
 
-imagepng($out, $cacheFile, 6);
+// Cache kun komplette kart, og skriv atomisk så samtidige førstegangsforespørsler
+// aldri leser en halvskrevet fil. Feilet noen tiles, prøves det på nytt neste gang.
+if ($failedTiles === 0) {
+    $tmpFile = $cacheFile . '.tmp.' . getmypid();
+    imagepng($out, $tmpFile, 6);
+    rename($tmpFile, $cacheFile);
+}
 
 header('Content-Type: image/png');
 header('Cache-Control: max-age=86400');
