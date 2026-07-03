@@ -3,57 +3,66 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Bruksanvisning — Sentinel Dashboard</title>
+<title>Bruksanvisning — Vansjø · Sentinel-arkiv</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
 
 :root{
-  --bg:#07070f;
-  --surface:rgba(255,255,255,.04);
-  --border:rgba(100,180,255,.15);
-  --accent:#38bdf8;
-  --accent-glow:rgba(56,189,248,.25);
-  --text:#cdd9e8;
-  --muted:rgba(205,217,232,.45);
-  --font-mono:'SF Mono','Fira Code','Cascadia Code',monospace;
+  --paper:#E7E3D6;      /* arkivpapir */
+  --paper-2:#DDD7C6;    /* mørkere papir */
+  --ink:#191A1C;        /* trykksverte */
+  --muted:rgba(25,26,28,.55);
+  --line:rgba(25,26,28,.8);
+  --hair:rgba(25,26,28,.25);
+  --blue:#1A5F8F;       /* kartblå */
+  --green:#256B43;
+  --ochre:#8F6400;
+  --red:#A93226;
+  --violet:#5F4494;     /* radar/PRO */
+  --font-mono:'IBM Plex Mono','Cascadia Code',Consolas,monospace;
+  --font-display:'Big Shoulders Display','Arial Narrow',Impact,sans-serif;
   --font-ui:system-ui,-apple-system,sans-serif;
 }
 
-html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:var(--font-ui)}
+html{color-scheme:light}
+html,body{min-height:100%;background:var(--paper);color:var(--ink);font-family:var(--font-ui)}
 
 .hdr{
   position:sticky;top:0;z-index:10;
-  display:flex;align-items:center;justify-content:space-between;
-  padding:14px 24px;
-  background:rgba(7,7,15,.92);
-  border-bottom:1px solid var(--border);
-  backdrop-filter:blur(8px);
+  display:flex;align-items:center;justify-content:space-between;gap:16px;
+  padding:12px 20px;
+  background:var(--paper);
+  border-bottom:1px solid var(--line);
 }
-.hdr-logo{
-  display:flex;align-items:center;gap:10px;
-  font-family:var(--font-mono);font-size:11px;font-weight:600;
-  letter-spacing:.35em;text-transform:uppercase;color:var(--accent);
+.hdr-logo{display:flex;flex-direction:column;gap:2px}
+.hdr-title{
+  font-family:var(--font-display);font-size:26px;font-weight:700;line-height:.9;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--ink);
 }
-.pulse{
-  width:7px;height:7px;border-radius:50%;background:var(--accent);
-  box-shadow:0 0 6px var(--accent);
-  animation:pulse 2s ease-in-out infinite;
+.hdr-sub{
+  font-family:var(--font-mono);font-size:9px;letter-spacing:.3em;
+  text-transform:uppercase;color:var(--muted);white-space:nowrap;
 }
-@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.85)}}
 
 .back-btn{
-  font-family:var(--font-mono);font-size:10px;letter-spacing:.2em;
-  text-transform:uppercase;color:var(--accent);text-decoration:none;
-  border:1px solid var(--border);padding:5px 12px;
-  transition:all .2s;
+  font-family:var(--font-mono);font-size:10px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--ink);text-decoration:none;
+  border:1px solid var(--ink);padding:6px 12px;
+  transition:background .15s,color .15s;
 }
-.back-btn:hover{background:var(--accent-glow);border-color:var(--accent)}
+.back-btn:hover{background:var(--ink);color:var(--paper)}
+.back-btn:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
 
 .content{max-width:680px;margin:0 auto;padding:48px 24px 80px}
 
 h1{
-  font-family:var(--font-mono);font-size:13px;font-weight:600;
-  letter-spacing:.25em;text-transform:uppercase;color:var(--accent);
+  font-family:var(--font-display);font-size:34px;font-weight:600;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--ink);
+  border-bottom:3px double var(--ink);padding-bottom:12px;
   margin-bottom:40px;
 }
 
@@ -62,49 +71,50 @@ section{margin-bottom:40px}
 h2{
   font-family:var(--font-mono);font-size:10px;font-weight:600;
   letter-spacing:.3em;text-transform:uppercase;color:var(--muted);
-  border-bottom:1px solid var(--border);padding-bottom:10px;margin-bottom:20px;
+  border-bottom:1px solid var(--line);padding-bottom:10px;margin-bottom:20px;
 }
 
 .row{
   display:flex;align-items:baseline;gap:16px;
-  padding:10px 0;border-bottom:1px solid rgba(255,255,255,.04);
+  padding:10px 0;border-bottom:1px solid var(--hair);
 }
 .row:last-child{border-bottom:none}
 
 .key{
   flex-shrink:0;min-width:110px;
-  font-family:var(--font-mono);font-size:11px;color:var(--accent);
+  font-family:var(--font-mono);font-size:11px;font-weight:500;color:var(--blue);
 }
 kbd{
   display:inline-block;
-  background:rgba(56,189,248,.08);border:1px solid var(--border);
+  background:var(--paper-2);border:1px solid var(--hair);
+  border-bottom-color:var(--line);
   padding:2px 7px;font-family:var(--font-mono);font-size:10px;
-  color:var(--accent);border-radius:2px;white-space:nowrap;
+  color:var(--ink);border-radius:2px;white-space:nowrap;
 }
-.desc{font-size:13px;color:var(--text);line-height:1.6}
+.desc{font-size:13px;color:var(--ink);line-height:1.6}
 .desc small{color:var(--muted);font-size:12px}
 
 .note{
   margin-top:12px;
-  background:rgba(56,189,248,.05);border-left:2px solid var(--accent);
+  background:var(--paper-2);border-left:4px solid var(--blue);
   padding:12px 16px;font-size:12px;color:var(--muted);line-height:1.7;
 }
-.note strong{color:var(--text)}
+.note strong{color:var(--ink)}
 
 .note-pro{
   margin-top:12px;
-  background:rgba(168,85,247,.05);border-left:2px solid #a855f7;
+  background:var(--paper-2);border-left:4px solid var(--violet);
   padding:12px 16px;font-size:12px;color:var(--muted);line-height:1.7;
 }
-.note-pro strong{color:var(--text)}
+.note-pro strong{color:var(--ink)}
 
-.cloud-good{color:#34d399}
-.cloud-ok{color:#fbbf24}
-.cloud-bad{color:#f87171}
+.cloud-good{color:var(--green)}
+.cloud-ok{color:var(--ochre)}
+.cloud-bad{color:var(--red)}
 .pro-tag{
   display:inline-block;
   font-family:var(--font-mono);font-size:9px;letter-spacing:.15em;text-transform:uppercase;
-  color:#a855f7;border:1px solid rgba(168,85,247,.4);padding:1px 6px;
+  color:var(--violet);border:1px solid var(--violet);padding:1px 6px;
   vertical-align:middle;margin-left:4px;
 }
 </style>
@@ -113,8 +123,8 @@ kbd{
 
 <header class="hdr">
   <div class="hdr-logo">
-    <div class="pulse"></div>
-    Sentinel Dashboard
+    <div class="hdr-title">Vansjø</div>
+    <div class="hdr-sub">Sentinel-satellittarkiv</div>
   </div>
   <a class="back-btn" href="index.php">← Tilbake</a>
 </header>
@@ -145,8 +155,8 @@ kbd{
       <div class="desc">
         Klikk eller trykk på et miniatyrbilde i bunnen for å hoppe direkte til den datoen.
         I pro-modus vises små bokstaver øverst til høyre på miniatyrbildene:
-        <span style="background:rgba(56,189,248,.88);color:#07070f;font-family:var(--font-mono);font-size:9px;font-weight:700;padding:1px 4px">O</span> = optisk bilde (Sentinel-2) &nbsp;
-        <span style="background:rgba(168,85,247,.88);color:#fff;font-family:var(--font-mono);font-size:9px;font-weight:700;padding:1px 4px">R</span> = radarbilde (Sentinel-1)
+        <span style="background:var(--ink);color:var(--paper);font-family:var(--font-mono);font-size:9px;font-weight:600;padding:1px 4px">O</span> = optisk bilde (Sentinel-2) &nbsp;
+        <span style="background:var(--violet);color:var(--paper);font-family:var(--font-mono);font-size:9px;font-weight:600;padding:1px 4px">R</span> = radarbilde (Sentinel-1)
       </div>
     </div>
   </section>
@@ -173,7 +183,7 @@ kbd{
       <div class="key">Std</div>
       <div class="desc">
         Standard visning — ett fullskjermbilde per dag fra <strong>Sentinel-2</strong> (optisk kamera).
-        Header-temaet er <span style="color:#38bdf8">cyan</span>.
+        Fargetemaet er <span style="color:var(--blue);font-weight:600">kartblått</span>.
       </div>
     </div>
     <div class="row">
@@ -181,7 +191,7 @@ kbd{
       <div class="desc">
         To bilder side om side — <strong>optisk</strong> (Sentinel-2) til venstre og
         <strong>radar</strong> (Sentinel-1 SAR) til høyre.
-        Header-temaet skifter til <span style="color:#a855f7">lilla</span>.
+        Fargetemaet skifter til <span style="color:var(--violet);font-weight:600">fiolett</span>.
         På mobil vises bildene under hverandre.
       </div>
     </div>
@@ -215,7 +225,7 @@ kbd{
       <div class="key">☁ &lt;50%-knappen</div>
       <div class="desc">
         Skjuler dager med over 50 % skydekke og dager uten satellittbilde.
-        Knappen lyser grønt når filteret er aktivt — klikk igjen for å vise alle datoer.
+        Knappen fylles med kartblått når filteret er aktivt — klikk igjen for å vise alle datoer.
       </div>
     </div>
     <div class="note">
@@ -230,8 +240,8 @@ kbd{
     <div class="row">
       <div class="key">Falskt fargebilde</div>
       <div class="desc">
-        Nær-infrarød kombinasjon — vegetasjon vises <strong style="color:#f87171">rød</strong>,
-        vann <strong style="color:#38bdf8">mørkt blått</strong>.
+        Nær-infrarød kombinasjon — vegetasjon vises <strong style="color:var(--red)">rød</strong>,
+        vann <strong style="color:var(--blue)">mørkt blått</strong>.
         Tydelig for å følge plantevekst og snødekke gjennom sesongen.
       </div>
     </div>
@@ -245,8 +255,8 @@ kbd{
       <div class="key">SAR-radar <span class="pro-tag">Pro</span></div>
       <div class="desc">
         Sentinel-1 radarbilde vist med jet-fargeskala.
-        <strong style="color:#38bdf8">Blå</strong> = glatt overflate / vann (lavt signal),
-        <strong style="color:#34d399">grønn</strong> og <strong style="color:#f87171">rød</strong> = vegetasjon og bebyggelse (høyt signal).
+        <strong style="color:var(--blue)">Blå</strong> = glatt overflate / vann (lavt signal),
+        <strong style="color:var(--green)">grønn</strong> og <strong style="color:var(--red)">rød</strong> = vegetasjon og bebyggelse (høyt signal).
         Fungerer gjennom skyer og om natten.
       </div>
     </div>

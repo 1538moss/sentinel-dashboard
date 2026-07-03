@@ -54,7 +54,7 @@ $ctx    = stream_context_create(['http' => [
 $failedTiles = 0;
 for ($y = $y1; $y <= $y2; $y++) {
     for ($x = $x1; $x <= $x2; $x++) {
-        $url  = "https://a.basemaps.cartocdn.com/dark_all/$zoom/$x/$y.png";
+        $url  = "https://a.basemaps.cartocdn.com/light_all/$zoom/$x/$y.png";
         $data = @file_get_contents($url, false, $ctx);
         $tile = ($data !== false) ? @imagecreatefromstring($data) : false;
         if ($tile) {

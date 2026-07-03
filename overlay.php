@@ -27,14 +27,54 @@ function geoToPx(float $lon, float $lat, array $aoi, int $w, int $h): array
     ];
 }
 
-function geometryToPath(array $geom, array $aoi, int $w, int $h): string
+/**
+ * Syr way-segmenter sammen til hele ringer ved å matche endepunkter.
+ * OSM-relasjoner leverer omrisset som biter i vilkårlig rekkefølge og retning —
+ * uten sammensying vil en Z per bit tegne rette korder tvers over vannet.
+ */
+function assembleRings(array $segments): array
 {
-    if (count($geom) < 2) return '';
+    $key   = fn(array $pt) => $pt[0] . ',' . $pt[1];
+    $rings = [];
+
+    while ($segments) {
+        $ring = array_shift($segments);
+
+        while ($key($ring[0]) !== $key(end($ring))) {
+            $endKey = $key(end($ring));
+            $found  = false;
+
+            foreach ($segments as $i => $seg) {
+                if ($key(end($seg)) === $endKey) $seg = array_reverse($seg);
+                elseif ($key($seg[0]) !== $endKey) continue;
+
+                array_shift($seg);                  // dropp delt endepunkt
+                $ring = array_merge($ring, $seg);
+                unset($segments[$i]);
+                $segments = array_values($segments);
+                $found = true;
+                break;
+            }
+
+            if (!$found) break;                     // åpen kjede — ingen flere biter passer
+        }
+
+        $rings[] = $ring;
+    }
+
+    return $rings;
+}
+
+function ringToPath(array $ring, array $aoi, int $w, int $h): string
+{
+    if (count($ring) < 2) return '';
     $pts = array_map(
-        fn($g) => implode(',', geoToPx((float)$g['lon'], (float)$g['lat'], $aoi, $w, $h)),
-        $geom
+        fn($pt) => implode(',', geoToPx($pt[0], $pt[1], $aoi, $w, $h)),
+        $ring
     );
-    return 'M ' . implode(' L ', $pts) . ' Z';
+    $closed = $pts[0] === end($pts);
+    if ($closed) array_pop($pts);                   // Z lukker — unngå duplisert punkt
+    return 'M ' . implode(' L ', $pts) . ($closed ? ' Z' : '');
 }
 
 // Overpass: hent alle vannflater med navn som inneholder "Vansj" innenfor AOI
@@ -66,23 +106,35 @@ if (!$body || $code !== 200) {
 
 $data     = json_decode($body, true);
 $elements = $data['elements'] ?? [];
-$paths    = [];
+
+// Samle segmenter som punktlister [lon, lat]. Relasjonsmedlemmer først, og
+// way-id-er noteres slik at samme geometri ikke også tas med som frittstående way.
+$segments = [];
+$seenWays = [];
+
+$toPoints = fn(array $geom) => array_map(fn($g) => [(float)$g['lon'], (float)$g['lat']], $geom);
 
 foreach ($elements as $el) {
-    if ($el['type'] === 'way' && !empty($el['geometry'])) {
-        $p = geometryToPath($el['geometry'], $aoi, $w, $h);
-        if ($p) $paths[] = $p;
-    }
-    if ($el['type'] === 'relation') {
-        foreach ($el['members'] ?? [] as $m) {
-            if (($m['type'] ?? '') === 'way'
-                && ($m['role'] ?? '') !== 'inner'
-                && !empty($m['geometry'])) {
-                $p = geometryToPath($m['geometry'], $aoi, $w, $h);
-                if ($p) $paths[] = $p;
-            }
+    if ($el['type'] !== 'relation') continue;
+    foreach ($el['members'] ?? [] as $m) {
+        if (($m['type'] ?? '') === 'way'
+            && ($m['role'] ?? '') !== 'inner'
+            && !empty($m['geometry'])) {
+            if (isset($m['ref'])) $seenWays[$m['ref']] = true;
+            $segments[] = $toPoints($m['geometry']);
         }
     }
+}
+foreach ($elements as $el) {
+    if ($el['type'] === 'way' && !empty($el['geometry']) && !isset($seenWays[$el['id']])) {
+        $segments[] = $toPoints($el['geometry']);
+    }
+}
+
+$paths = [];
+foreach (assembleRings($segments) as $ring) {
+    $p = ringToPath($ring, $aoi, $w, $h);
+    if ($p) $paths[] = $p;
 }
 
 if (empty($paths)) {
@@ -98,8 +150,8 @@ $d = implode(' ', $paths);
 $svg = <<<SVG
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {$w} {$h}">
   <path d="{$d}"
-    fill="rgba(56,189,248,0.13)"
-    stroke="#38bdf8"
+    fill="rgba(26,95,143,0.13)"
+    stroke="#1A5F8F"
     stroke-width="3"
     stroke-linejoin="round"
     fill-rule="evenodd"/>
@@ -109,7 +161,7 @@ $svg = <<<SVG
     font-size="26"
     font-weight="bold"
     letter-spacing="3"
-    fill="#38bdf8"
+    fill="#1A5F8F"
     opacity="0.85">VANSJØ</text>
 </svg>
 SVG;
