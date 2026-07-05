@@ -44,14 +44,18 @@ $y2 = lat2tile($aoi['south'], $zoom);   // sør = høyere tile-Y
 $cols = $x2 - $x1 + 1;
 $rows = $y2 - $y1 + 1;
 
-// Lim tiles på ett canvas
-$canvas = imagecreatetruecolor($cols * $tileSize, $rows * $tileSize);
+// Lim tiles på ett canvas — fyll først med papirfarge, så feilede tiles
+// ikke havner som svarte hull i kartet
+$canvas    = imagecreatetruecolor($cols * $tileSize, $rows * $tileSize);
+$paperFill = imagecolorallocate($canvas, 0xE7, 0xE3, 0xD6);
+imagefill($canvas, 0, 0, $paperFill);
 $ctx    = stream_context_create(['http' => [
     'header'  => "User-Agent: SentinelDashboard/1.0\r\n",
     'timeout' => 10,
 ]]);
 
 $failedTiles = 0;
+$totalTiles  = $cols * $rows;
 for ($y = $y1; $y <= $y2; $y++) {
     for ($x = $x1; $x <= $x2; $x++) {
         $url  = "https://a.basemaps.cartocdn.com/light_all/$zoom/$x/$y.png";
@@ -86,9 +90,11 @@ $out = imagecreatetruecolor($outW, $outH);
 imagecopyresampled($out, $canvas, 0, 0, $srcX, $srcY, $outW, $outH, $srcW, $srcH);
 imagedestroy($canvas);
 
-// Cache kun komplette kart, og skriv atomisk så samtidige førstegangsforespørsler
-// aldri leser en halvskrevet fil. Feilet noen tiles, prøves det på nytt neste gang.
-if ($failedTiles === 0) {
+// Cache med mindre ALLE tiles feilet (da er kartet bare papirfarge, og bør
+// forsøkes på nytt neste gang). Noen få feilede tiles er OK — de vises som
+// papirfarge inntil neste (uendelige) sideinnlasting tilfeldigvis lykkes.
+// Skriv atomisk så samtidige førstegangsforespørsler aldri leser en halvskrevet fil.
+if ($failedTiles < $totalTiles) {
     $tmpFile = $cacheFile . '.tmp.' . getmypid();
     imagepng($out, $tmpFile, 6);
     rename($tmpFile, $cacheFile);

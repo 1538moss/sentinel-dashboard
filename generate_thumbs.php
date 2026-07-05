@@ -2,8 +2,11 @@
 /**
  * Generer thumbnails for alle eksisterende bilder.
  * Kjør én gang etter deploy: php generate_thumbs.php
+ * Regenerer også eksisterende thumbnails (f.eks. etter en fiks i generateThumb()): php generate_thumbs.php --force
  */
 if (PHP_SAPI !== 'cli') { http_response_code(403); exit; }
+
+$force = in_array('--force', $argv, true);
 
 $config  = require __DIR__ . '/config.php';
 $thumbsDir = $config['thumbs_dir'];
@@ -25,7 +28,7 @@ foreach ($metadata as &$m) {
 
     if (!file_exists($srcPath)) continue;
 
-    if (file_exists($thumbPath)) {
+    if (!$force && file_exists($thumbPath)) {
         $m['thumbnail'] = $thumbFile;
         $skipped++;
         continue;

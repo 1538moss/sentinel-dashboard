@@ -47,6 +47,8 @@ class SentinelFetcher
 
         $size  = 136;
         $thumb = imagecreatetruecolor($size, $size);
+        $paperFill = imagecolorallocate($thumb, 0xE7, 0xE3, 0xD6);
+        imagefill($thumb, 0, 0, $paperFill);
         imagecopyresampled($thumb, $src, 0, 0, 0, 0, $size, $size, imagesx($src), imagesy($src));
         imagejpeg($thumb, $thumbPath, 78);
         imagedestroy($src);
@@ -643,7 +645,10 @@ JS;
 }
 
 // ── CLI ───────────────────────────────────────────────────────────────────────
-if (PHP_SAPI === 'cli') {
+// Kun når fetch.php kjøres direkte — ikke når den require_once'es som bibliotek
+// (f.eks. fra generate_thumbs.php), ellers ville hver slik inkludering utilsiktet
+// trigget en ekte henting mot Sentinel Hub-API-et.
+if (PHP_SAPI === 'cli' && realpath($argv[0]) === __FILE__) {
     $config  = require __DIR__ . '/config.php';
     $fetcher = new SentinelFetcher($config);
 
