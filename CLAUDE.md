@@ -172,24 +172,27 @@ Ekskluderer: `images/`, `data/`, `scripts/`, `*.env`, `.git/`, `.claude/`
 
 ### Etter første deploy (engangs)
 ```bash
-sudo php /var/www/sentinel/generate_thumbs.php
+sudo -u www-data php /var/www/sentinel/generate_thumbs.php
 ```
 
 ### Manuell bildeinnhenting
+Kjør som `www-data` (samme bruker som cron), ellers blir nye bilde-/thumbnail-filer eid av `root` i stedet for `www-data` — funker for visning (world-readable), men er en unødvendig inkonsistens.
 ```bash
 # Siste 14 dager
-sudo php fetch.php
+sudo -u www-data php fetch.php
 
 # Spesifikk periode
-sudo php fetch.php --from=2026-01-01 --to=2026-01-14
+sudo -u www-data php fetch.php --from=2026-01-01 --to=2026-01-14
 
 # Slett spesifikke datoer
-sudo php cleanup.php 2026-06-30 2026-07-01
+sudo -u www-data php cleanup.php 2026-06-30 2026-07-01
 ```
 
 ---
 
 ## Cron (automatisk henting, kl. 07)
+
+Registrert i `www-data` sin crontab (`sudo crontab -u www-data -e`), slik at bilder/thumbnails opprettes med samme eierskap som Apache selv — se merknaden under manuell bildeinnhenting.
 
 ```
 0 7 * * * php /var/www/sentinel/fetch.php >> /var/www/sentinel/data/fetch.log 2>&1
