@@ -1,28 +1,33 @@
 # Backlog
 
-## Landsat som tredje PRO-panel (BLOKKERT — venter på USGS-tilgang)
+## Landsat som tredje PRO-panel (implementert og verifisert — klar for prod-rollout)
 
-Legg til Landsat 8-9 (USGS M2M API) som en tredje bildekilde i PRO-modus, ved siden av S2 optisk og S1 radar (S2 | S1 | Landsat). Landsat-bilder skal ha en synlig, separat attribusjon: **"Credit: U.S. Geological Survey"**.
+Landsat 8-9 (USGS M2M API) som tredje bildekilde i PRO-modus, ved siden av S2 optisk og S1 radar (S2 | S1 | Landsat). Landsat-bilder har en synlig, separat attribusjon: **"Credit: U.S. Geological Survey"**.
 
-**Status:** Søknad om M2M-nedlastingstilgang sendt til USGS (konto `1538moss` har i dag kun `user`-rettighet, `download-options` gir HTTP 403). Venter på godkjenning fra USGS (`https://ers.cr.usgs.gov/profile/access`, "Machine-to-Machine (M2M)" access type) før arbeidet kan fortsette.
+**Status:** USGS godkjente Machine-to-Machine-tilgang 2026-07-06 (konto `1538moss`). All kode er implementert, bakend er verifisert ende-til-ende mot ekte data, og bruker har visuelt bekreftet at det tredje panelet vises korrekt i nettleser (2026-07-06). Testscriptene er slettet. Gjenstår kun: installer `gdal-bin`/`python3-gdal` på produksjonsserveren, og aktiver `landsat_enabled` i produksjons-config.
 
-**Bekreftet så langt:**
-- Login (`login-token`) og `scene-search` fungerer mot ekte credentials — 20 Landsat 8/9-scener funnet over Vansjø-AOI (2023–2026), både path/row 018 og 019.
-- Offisiell USGS-attribusjonstekst bekreftet fra scene-metadata: *"Data available from the U.S. Geological Survey."*
-- `download-options` blokkert (HTTP 403 — HTML-login-side, ikke JSON) inntil M2M-tilgang er godkjent.
+**Implementert:**
+1. `config.php`: `usgs`-block (username, token, base_url, dataset, GDAL-kommando-overstyringer) + `landsat_enabled` flagg (default `false`). `env.example` oppdatert med `USGS_USERNAME`/`USGS_M2M_TOKEN`.
+2. `fetch.php`: `usgsLogin`/`usgsLogout`/`usgsRequest`, `searchDatesLandsat` (scene-search + dedup laveste skydekke), `runGdal` (proc_open-wrapper), `fetchImageLandsat` (full GDAL-pipeline), gated blokk i `_run()` (kun når `landsat_enabled`), `purgeOldImages()` og S2-skip-listen utvidet for `LANDSAT`-sensor.
+3. `api.php`: `status`/`next` hopper over `LANDSAT` samme som `S1`; `fetch` sin cache-invalidering sjekker `landsat_downloaded`.
+4. `index.php`: `landsatByDate`, `buildLandsatFrame()` (speiler `buildS1Frame` + USGS-credit-element), tredje `.pro-panel` i `buildSlides()`, `tl-badge-l` i tidslinjen, `--landsat` aksentfarge (#B5651D, brent oransje), `.pro-label-landsat`/`.usgs-credit` CSS.
+5. `help.php`, `cleanup.php` (`-landsat.png`/`.jpg`-targets), `scripts/setup_ubuntu.sh` (`gdal-bin python3-gdal`), `CLAUDE.md` — alle oppdatert.
+6. `.gitignore`: `_test_*.php` lagt til slik at engangs-testscript aldri committes ved uhell.
 
-**Nøkkelbeslutning (tatt):** Full GDAL-pipeline (last ned SR-bånd → `gdalwarp` reprojiser+beskjær til AOI → komponer RGB+alpha-PNG), ikke browse-JPEG-snarvei — gir et panel som er pikselvis sammenlignbart med S2/S1 (samme 1024×1024 AOI-ramme, stemmer med innsjø-overlay og graticule-koordinater). GDAL 3.12 er tilgjengelig lokalt via `C:/OSGeo4W/bin` for prototyping/testing før noe rulles ut til produksjonsserveren (som i dag kun har `php-gd`, ikke GDAL).
+**Kritisk bug funnet og fikset under ende-til-ende-verifisering:**
+`gdal_merge.py -separate` har en reprodusert bug der **siste bånd i output blir nullet ut** (alpha=0 overalt), uansett hvilken fil som faktisk ligger sist i argumentlisten (bekreftet ved å bytte rekkefølge — det er alltid siste posisjon som rammes, ikke et bestemt bånd/fil). Dette gjorde at det første virkelige produksjonskjørte Landsat-bildet (2026-07-01, sky 12%) ble **helt transparent** — usynlig i nettleser, men usynlig-feilen ble ikke fanget opp av `_test_gdal_pipeline.php`s visuelle sjekk fordi det interne bildeviser-verktøyet som ble brukt til å inspisere PNG-en ignorerer alfakanalen og viser RGB uansett. Roten ble funnet ved å sjekke faktiske pikselverdier med `gdalinfo -stats`/Python-GDAL (band 4: min=0 max=0 mean=0) og bekreftet ved å reprodusere bugen isolert med identiske input-filer.
 
-**Full implementasjonsplan:** se `C:\Users\p\.claude\plans\vast-beaming-shore.md` (lokal Claude Code-planfil, ikke i git) — detaljerte kodeendringer per fil er beskrevet der.
+**Fiks:** Erstattet `gdal_merge.py -separate` med `gdalbuildvrt -separate` (kjerne-GDAL-verktøy, ikke python-utility-scriptet) → `gdal_translate` fra VRT til PNG. Verifisert korrekt: alpha nå `min=0 max=255 mean=242.5` (riktig variert maske, ikke konstant). `gdal_merge_cmd`-konfignøkkelen er fjernet, erstattet med `gdalbuildvrt_cmd` (default `gdalbuildvrt`, på PATH via `gdal-bin` i produksjon).
+
+**Fullstendig verifisert ende-til-ende lokalt (`_test_landsat_e2e.php`, kaller `SentinelFetcher::runRange()` direkte med `landsat_enabled` og lokale Windows GDAL-stier overstyrt, uten å røre `config.php`):**
+- `php fetch.php`-ekvivalent kjøring mot ekte USGS M2M + Sentinel Hub API i samme pass — `LANDSAT OK 2026-07-01 → 2026-07-01-landsat.png (1536 KB skydekke: 12%)`, S2/S1 upåvirket.
+- Metadata-skjema stemmer nøyaktig med planen (`sensor:"LANDSAT"`, `type:"landsat"`).
+- `?action=status`/`?action=next` hopper korrekt over LANDSAT-entryen.
+- Bildet og thumbnailen serveres korrekt over HTTP (200, byte-for-byte match mot fil på disk).
+- Etter fiksen: alle 4 bånd (R/G/B/alfa) har riktig variert data — visuelt sammenlignet mot `images/2026-07-04.png`: samme innsjøform/kystlinje/veigrid på samme sted, pluss korrekt gjennomsiktig hjørne der satellittsvaden ikke dekker AOI.
 
 **Gjenstående steg:**
-1. ~~Verifiser M2M-tilgang med standalone testscript~~ — ferdig (se over)
-2. Last ned testbånd og valider GDAL-pipeline lokalt (blokkert — venter på USGS-godkjenning)
-3. Legg til USGS-config og env-nøkler (`config.php`: `usgs`-block + `landsat_enabled` flagg, `env.example`)
-4. Implementer Landsat-henting i `fetch.php` (`usgsLogin`/`usgsLogout`, `searchDatesLandsat`, `fetchImageLandsat` via GDAL, gated blokk i `_run()`)
-5. Oppdater `api.php` for `LANDSAT`-sensor (utvid S1-skip-conditionals i `status`/`next`)
-6. Bygg tredje PRO-panel i `index.php` (`landsatByDate`, `buildLandsatFrame`, L-badge, ny aksentfarge, USGS-attribusjon)
-7. Oppdater `help.php`, `cleanup.php`, `scripts/setup_ubuntu.sh` (gdal-bin), `CLAUDE.md`
-8. Verifiser end-to-end lokalt, slett `_test_m2m.php`, aktiver `landsat_enabled` i produksjon
-
-**Testscript liggende klart (ikke committet):** `_test_m2m.php` i repo-roten — kjør på nytt med `php _test_m2m.php` så snart USGS godkjenner tilgangen, for å bekrefte at `download-options`/`download-request` faktisk returnerer bånddata.
+1. ~~Bruker bekrefter visuelt i nettleser~~ — bekreftet 2026-07-06 (tredje panel, USGS-credit, L-badge, brent oransje "Landsat"-tag vises korrekt)
+2. ~~Slett testscript~~ — `_test_m2m.php`, `_test_gdal_pipeline.php`, `_test_landsat_e2e.php` fjernet
+3. Installer `gdal-bin python3-gdal` på produksjonsserveren (`scripts/setup_ubuntu.sh`, kjøres manuelt via ssh)
+4. Sett `landsat_enabled => true` i produksjons-config først etter punkt 3 er bekreftet

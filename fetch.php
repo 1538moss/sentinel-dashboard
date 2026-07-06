@@ -16,6 +16,7 @@ class SentinelFetcher
     private ?string $token      = null;
     private int     $tokenExpiry = 0;
     private string  $logFile    = '';
+    private ?string $usgsToken  = null;
 
     public function __construct(array $config)
     {
@@ -305,6 +306,275 @@ JS;
         return $imageData;
     }
 
+    // ── USGS M2M (Landsat 8-9) ─────────────────────────────────────────────────
+    private function usgsRequest(string $endpoint, array $payload): array
+    {
+        $headers = ['Content-Type: application/json'];
+        if ($this->usgsToken) $headers[] = "X-Auth-Token: {$this->usgsToken}";
+
+        $ch = curl_init($this->config['usgs']['base_url'] . $endpoint);
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => json_encode($payload),
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPHEADER     => $headers,
+            CURLOPT_TIMEOUT        => 60,
+        ]);
+        $body = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err  = curl_error($ch);
+        curl_close($ch);
+
+        if ($err) {
+            throw new RuntimeException("M2M $endpoint curl-feil: $err");
+        }
+
+        $data = json_decode((string)$body, true);
+        if ($data === null) {
+            throw new RuntimeException("M2M $endpoint svarte med ugyldig JSON (HTTP $code)");
+        }
+        if (!empty($data['errorCode'])) {
+            throw new RuntimeException("M2M $endpoint feil: {$data['errorCode']} — {$data['errorMessage']}");
+        }
+        if ($code !== 200) {
+            throw new RuntimeException("M2M $endpoint feilet (HTTP $code)");
+        }
+
+        return $data;
+    }
+
+    private function usgsLogin(): void
+    {
+        $username = $this->config['usgs']['username'] ?? '';
+        $token    = $this->config['usgs']['token']    ?? '';
+        if ($username === '' || $token === '') {
+            throw new RuntimeException("Mangler USGS_USERNAME/USGS_M2M_TOKEN i .sentinel.env");
+        }
+
+        $resp = $this->usgsRequest('login-token', ['username' => $username, 'token' => $token]);
+        $this->usgsToken = $resp['data'] ?? null;
+        if (!$this->usgsToken) {
+            throw new RuntimeException("USGS login-token ga ingen sesjonstoken");
+        }
+    }
+
+    private function usgsLogout(): void
+    {
+        if (!$this->usgsToken) return;
+        try {
+            $this->usgsRequest('logout', []);
+        } catch (RuntimeException $e) {
+            // best-effort — en feilende logout skal aldri kaste videre
+        }
+        $this->usgsToken = null;
+    }
+
+    /** Returnerer array med ['date'=>'YYYY-MM-DD', 'cloud_cover'=>float, 'entity_id'=>string] */
+    public function searchDatesLandsat(string $from, string $to): array
+    {
+        $aoi = $this->config['aoi'];
+
+        $resp = $this->usgsRequest('scene-search', [
+            'datasetName' => $this->config['usgs']['dataset'],
+            'sceneFilter' => [
+                'spatialFilter' => [
+                    'filterType' => 'mbr',
+                    'lowerLeft'  => ['latitude' => $aoi['south'], 'longitude' => $aoi['west']],
+                    'upperRight' => ['latitude' => $aoi['north'], 'longitude' => $aoi['east']],
+                ],
+                'acquisitionFilter' => ['start' => $from, 'end' => $to],
+            ],
+            'maxResults' => 100,
+        ]);
+
+        $scenes = $resp['data']['results'] ?? [];
+
+        // Dedup per dato — behold lavest skydekke (skydekke ER tilgjengelig her, i motsetning til S1)
+        $byDate = [];
+        foreach ($scenes as $s) {
+            $date = substr($s['temporalCoverage']['startDate'] ?? '', 0, 10);
+            if ($date === '') continue;
+            $cloud = (float)($s['cloudCover'] ?? 100);
+            if (!isset($byDate[$date]) || $cloud < $byDate[$date]['cloud_cover']) {
+                $byDate[$date] = [
+                    'date'        => $date,
+                    'cloud_cover' => round($cloud, 1),
+                    'entity_id'   => $s['entityId'],
+                ];
+            }
+        }
+
+        krsort($byDate);
+        return array_values($byDate);
+    }
+
+    /** Kjører en GDAL-kommando, kaster RuntimeException med stderr ved feil */
+    private function runGdal(string $cmd): void
+    {
+        $proc = proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        if (!is_resource($proc)) {
+            throw new RuntimeException("Kunne ikke starte GDAL-kommando: $cmd");
+        }
+        fclose($pipes[1]);
+        $stderr = stream_get_contents($pipes[2]);
+        fclose($pipes[2]);
+        $exitCode = proc_close($proc);
+
+        if ($exitCode !== 0) {
+            throw new RuntimeException("GDAL-kommando feilet (exit $exitCode): $cmd\n$stderr");
+        }
+    }
+
+    /**
+     * Henter Landsat SR-bånd via M2M, kjører full GDAL-pipeline
+     * (gdalwarp reprojiser+beskjær → gdal_translate skaler til Byte →
+     * gdal_calc.py alfamaske fra QA_PIXEL → gdal_merge.py RGBA → PNG),
+     * returnerer PNG-bytes (samme kontrakt som fetchImageS1()).
+     */
+    public function fetchImageLandsat(string $date, string $entityId): string
+    {
+        $aoi  = $this->config['aoi'];
+        $w    = $this->config['image_width'];
+        $h    = $this->config['image_height'];
+        $mode = $this->config['render_mode'] ?? 'true_color';
+
+        if ($mode === 'false_color') {
+            $bands = ['SR_B5', 'SR_B4', 'SR_B3']; // NIR, Rød, Grønn
+            $gain  = 3.0;
+        } else {
+            $bands = ['SR_B4', 'SR_B3', 'SR_B2']; // Rød, Grønn, Blå
+            $gain  = 3.5;
+        }
+        $wantedFiles = array_merge($bands, ['QA_PIXEL']);
+
+        $doResp = $this->usgsRequest('download-options', [
+            'datasetName' => $this->config['usgs']['dataset'],
+            'entityIds'   => [$entityId],
+        ]);
+
+        $bandInfo = [];
+        foreach ($doResp['data'] ?? [] as $bundle) {
+            foreach ($bundle['secondaryDownloads'] ?? [] as $sub) {
+                foreach ($wantedFiles as $band) {
+                    if (str_ends_with($sub['displayId'] ?? '', "_{$band}.TIF")) {
+                        $bandInfo[$band] = ['entityId' => $sub['entityId'], 'productId' => $sub['id']];
+                    }
+                }
+            }
+        }
+        foreach ($wantedFiles as $band) {
+            if (empty($bandInfo[$band])) {
+                throw new RuntimeException("Fant ikke bånd $band i download-options for $entityId");
+            }
+        }
+
+        $scratchDir = $this->config['data_dir'] . 'landsat_tmp/' . $date . '/';
+        if (!is_dir($scratchDir)) mkdir($scratchDir, 0755, true);
+
+        try {
+            $localFiles = [];
+            foreach ($wantedFiles as $band) {
+                $info = $bandInfo[$band];
+                $drResp = $this->usgsRequest('download-request', [
+                    'downloads' => [['entityId' => $info['entityId'], 'productId' => $info['productId']]],
+                    'label'     => 'sentinel-fetch',
+                ]);
+
+                $url = $drResp['data']['availableDownloads'][0]['url'] ?? null;
+                if (!$url) {
+                    $downloadId = $drResp['data']['preparingDownloads'][0]['downloadId'] ?? null;
+                    if ($downloadId === null) {
+                        throw new RuntimeException("Ingen nedlastings-URL for bånd $band ($entityId)");
+                    }
+                    for ($i = 0; $i < 10 && !$url; $i++) {
+                        sleep(6);
+                        $retResp = $this->usgsRequest('download-retrieve', ['label' => 'sentinel-fetch']);
+                        foreach ($retResp['data']['available'] ?? [] as $a) {
+                            if (($a['downloadId'] ?? null) == $downloadId) $url = $a['url'];
+                        }
+                    }
+                    if (!$url) {
+                        throw new RuntimeException("Nedlasting for bånd $band ($entityId) ble aldri klar");
+                    }
+                }
+
+                $dest = $scratchDir . $band . '.TIF';
+                $fp = fopen($dest, 'wb');
+                $ch = curl_init($url);
+                curl_setopt_array($ch, [
+                    CURLOPT_FILE           => $fp,
+                    CURLOPT_TIMEOUT        => 180,
+                    CURLOPT_FOLLOWLOCATION => true,
+                ]);
+                curl_exec($ch);
+                $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                $err  = curl_error($ch);
+                curl_close($ch);
+                fclose($fp);
+
+                if ($code !== 200 || $err || !is_file($dest) || filesize($dest) === 0) {
+                    throw new RuntimeException("Nedlasting av bånd $band feilet (HTTP $code)" . ($err ? " — $err" : ''));
+                }
+                $localFiles[$band] = $dest;
+            }
+
+            $gdalwarp      = $this->config['usgs']['gdalwarp_cmd'];
+            $gdalTranslate = $this->config['usgs']['gdal_translate_cmd'];
+            $gdalCalc      = $this->config['usgs']['gdal_calc_cmd'];
+            $gdalBuildvrt  = $this->config['usgs']['gdalbuildvrt_cmd'];
+            $bbox          = "{$aoi['west']} {$aoi['south']} {$aoi['east']} {$aoi['north']}";
+
+            // 1. Reprojiser+beskjær reflektans-bånd til AOI (bilinear)
+            foreach ($bands as $band) {
+                $src = $localFiles[$band];
+                $dst = $scratchDir . "{$band}_warp.tif";
+                $this->runGdal("$gdalwarp -overwrite -t_srs EPSG:4326 -te $bbox -ts $w $h -r bilinear -srcnodata 0 -dstnodata 0 " . escapeshellarg($src) . ' ' . escapeshellarg($dst));
+            }
+
+            // 2. Reprojiser+beskjær QA_PIXEL (nearest-neighbor — bevarer bitmaske)
+            $qaWarp = $scratchDir . 'QA_PIXEL_warp.tif';
+            $this->runGdal("$gdalwarp -overwrite -t_srs EPSG:4326 -te $bbox -ts $w $h -r near " . escapeshellarg($localFiles['QA_PIXEL']) . ' ' . escapeshellarg($qaWarp));
+
+            // 3. DN → reflectance → gain, lineært til Byte 0-255
+            //    reflectance = DN*0.0000275-0.2 ; byte = clip(reflectance*gain,0,1)*255
+            $srcMin = 0.2 / 0.0000275;
+            $srcMax = (1 / $gain + 0.2) / 0.0000275;
+            foreach ($bands as $band) {
+                $src = $scratchDir . "{$band}_warp.tif";
+                $dst = $scratchDir . "{$band}_byte.tif";
+                $this->runGdal("$gdalTranslate -ot Byte -scale $srcMin $srcMax 0 255 -a_nodata 0 " . escapeshellarg($src) . ' ' . escapeshellarg($dst));
+            }
+
+            // 4. Alfamaske fra QA_PIXEL fill-bit (bit 0): 255 der ekte data, 0 der fill
+            $alpha = $scratchDir . 'alpha.tif';
+            $this->runGdal("$gdalCalc -A " . escapeshellarg($qaWarp) . " --outfile=" . escapeshellarg($alpha) . ' --calc="255*((A&1)==0)" --type=Byte --overwrite');
+
+            // 5. Slå sammen R/G/B + alfa → RGBA via VRT
+            // (gdal_merge.py -separate har en kjent bug som nuller ut siste bånd i output —
+            //  gdalbuildvrt (kjerne-GDAL, ikke python-utility) gjør det samme uten den feilen)
+            $vrt = $scratchDir . 'stacked.vrt';
+            $bandFiles = array_map(fn($b) => escapeshellarg($scratchDir . "{$b}_byte.tif"), $bands);
+            $this->runGdal("$gdalBuildvrt -separate " . escapeshellarg($vrt) . ' ' . implode(' ', $bandFiles) . ' ' . escapeshellarg($alpha));
+
+            // 6. Endelig PNG
+            $png = $scratchDir . 'final.png';
+            $this->runGdal("$gdalTranslate -of PNG " . escapeshellarg($vrt) . ' ' . escapeshellarg($png));
+
+            $imageData = file_get_contents($png);
+            if ($imageData === false) {
+                throw new RuntimeException("Kunne ikke lese ferdig Landsat-PNG: $png");
+            }
+            return $imageData;
+        } finally {
+            // Rydd opp scratch-mappen uansett utfall
+            $files = glob($scratchDir . '*');
+            if ($files) {
+                foreach ($files as $f) unlink($f);
+            }
+            @rmdir($scratchDir);
+        }
+    }
+
     // ── Process API — hent rendret bilde ─────────────────────────────────────
     public function fetchImage(string $date): string
     {
@@ -447,6 +717,7 @@ JS;
         $stats = [
             'searched'      => 0, 'downloaded' => 0, 'skipped' => 0, 'errors' => [],
             's1_downloaded' => 0, 's1_skipped' => 0, 's1_errors' => [],
+            'landsat_downloaded' => 0, 'landsat_skipped' => 0, 'landsat_errors' => [],
         ];
 
         $dates = $this->searchDates($startDate, $endDate);
@@ -456,10 +727,10 @@ JS;
 
         $this->log("S2 katalogsøk: {$stats['searched']} dato(er) funnet");
 
-        // Skip-liste: kun ekte S2-bilder (ikke kart-placeholders, ikke S1)
+        // Skip-liste: kun ekte S2-bilder (ikke kart-placeholders, ikke S1/Landsat)
         $existingS2Dates = [];
         foreach ($metadata as $m) {
-            if (($m['type'] ?? '') !== 'map' && ($m['sensor'] ?? '') !== 'S1' && !empty($m['filename'])) {
+            if (($m['type'] ?? '') !== 'map' && !in_array($m['sensor'] ?? '', ['S1', 'LANDSAT'], true) && !empty($m['filename'])) {
                 if (file_exists($this->config['images_dir'] . $m['filename'])) {
                     $existingS2Dates[] = $m['date'];
                 }
@@ -593,6 +864,77 @@ JS;
             }
         }
 
+        // ── Landsat (kun når landsat_enabled === true) ───────────────────────
+        if (($this->config['landsat_enabled'] ?? false) === true) {
+            try {
+                $this->usgsLogin();
+
+                $landsatDates = $this->searchDatesLandsat($startDate, $endDate);
+                $this->log("Landsat katalogsøk: " . count($landsatDates) . " dato(er) funnet");
+
+                $existingLandsat = [];
+                foreach ($metadata as $m) {
+                    if (($m['sensor'] ?? '') === 'LANDSAT' && !empty($m['filename'])) {
+                        if (file_exists($this->config['images_dir'] . $m['filename'])) {
+                            $existingLandsat[] = $m['date'];
+                        }
+                    }
+                }
+
+                foreach ($landsatDates as $entry) {
+                    $date  = $entry['date'];
+                    $cloud = $entry['cloud_cover'];
+
+                    if (in_array($date, $existingLandsat, true)) {
+                        $stats['landsat_skipped']++;
+                        $this->log("LANDSAT SKIP  $date  (allerede lagret)");
+                        continue;
+                    }
+
+                    // Fjern eventuell foreldret Landsat-metadata uten fil på disk
+                    $metadata = array_values(array_filter($metadata,
+                        fn($m) => !(($m['sensor'] ?? '') === 'LANDSAT' && $m['date'] === $date)
+                    ));
+
+                    $filename = $date . '-landsat.png';
+                    $savePath = $this->config['images_dir'] . $filename;
+
+                    try {
+                        $imageData = $this->fetchImageLandsat($date, $entry['entity_id']);
+                        file_put_contents($savePath, $imageData);
+                        $kb = round(strlen($imageData) / 1024);
+
+                        $thumbFile = $date . '-landsat.jpg';
+                        $thumbPath = $this->config['thumbs_dir'] . $thumbFile;
+                        $thumbOk   = $this->generateThumb($savePath, $thumbPath);
+
+                        $metadata[] = [
+                            'id'          => 'landsat_' . $date,
+                            'date'        => $date,
+                            'sensor'      => 'LANDSAT',
+                            'cloud_cover' => $cloud,
+                            'filename'    => $filename,
+                            'thumbnail'   => $thumbOk ? $thumbFile : null,
+                            'type'        => 'landsat',
+                            'fetched_at'  => date('c'),
+                        ];
+
+                        $stats['landsat_downloaded']++;
+                        $thumb = $thumbOk ? "thumbnail: $thumbFile" : 'thumbnail: FEIL';
+                        $this->log("LANDSAT OK    $date  →  $filename  ({$kb} KB  skydekke: {$cloud}%  $thumb)");
+                    } catch (RuntimeException $e) {
+                        $stats['landsat_errors'][] = "$date: " . $e->getMessage();
+                        $this->log("LANDSAT FEIL  $date  " . $e->getMessage());
+                    }
+                }
+            } catch (RuntimeException $e) {
+                $stats['landsat_errors'][] = $e->getMessage();
+                $this->log("LANDSAT FEIL  " . $e->getMessage());
+            } finally {
+                $this->usgsLogout();
+            }
+        }
+
         usort($metadata, fn($a, $b) => strcmp($b['date'], $a['date']));
         $this->saveMetadata($metadata);
 
@@ -600,7 +942,8 @@ JS;
 
         $s2sum = "S2: {$stats['downloaded']} nedlastet / {$stats['skipped']} hoppet over / " . count($stats['errors']) . " feil";
         $s1sum = "S1: {$stats['s1_downloaded']} nedlastet / {$stats['s1_skipped']} hoppet over / " . count($stats['s1_errors']) . " feil";
-        $this->log("=== Ferdig — $s2sum | $s1sum | {$stats['deleted']} slettet ===");
+        $lsum  = "Landsat: {$stats['landsat_downloaded']} nedlastet / {$stats['landsat_skipped']} hoppet over / " . count($stats['landsat_errors']) . " feil";
+        $this->log("=== Ferdig — $s2sum | $s1sum | $lsum | {$stats['deleted']} slettet ===");
 
         return $stats;
     }
@@ -628,7 +971,11 @@ JS;
                     if (file_exists($tp)) unlink($tp);
                 }
 
-                $sensor = ($m['sensor'] ?? '') === 'S1' ? ' S1' : ' S2';
+                $sensor = match ($m['sensor'] ?? '') {
+                    'S1'      => ' S1',
+                    'LANDSAT' => ' LANDSAT',
+                    default   => ' S2',
+                };
                 $file   = $m['filename'];
                 $this->log("SLETTET {$m['date']}{$sensor}  →  $file  ({$kb} KB  eldre enn {$keepDays} dager)");
             }

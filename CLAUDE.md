@@ -1,7 +1,7 @@
 # Sentinel Satellite Dashboard
 
 ## Prosjektbeskrivelse
-En webløsning som automatisk henter daglige satellittbilder fra Sentinel-2 (ESA), lagrer dem, og viser dem som et interaktivt fullskjerm-slideshow med datomerking, skydekke-info og tidslinje.
+En webløsning som automatisk henter daglige satellittbilder fra Sentinel-2 (ESA), lagrer dem, og viser dem som et interaktivt fullskjerm-slideshow med datomerking, skydekke-info og tidslinje. I Pro-modus vises i tillegg Sentinel-1 SAR-radar og (bak et eget flagg) Landsat 8-9 optisk (USGS).
 
 **GitHub:** https://github.com/1538moss/sentinel-dashboard  
 **Produksjon:** https://kart.vansjo.top  
@@ -46,6 +46,8 @@ Hemmeligheter lagres **aldri** i koden. `config.php` leser fra:
 SH_CLIENT_ID=...
 SH_CLIENT_SECRET=...
 FETCH_TOKEN=...   # Generer: php -r "echo bin2hex(random_bytes(24));"
+USGS_USERNAME=...      # EROS-brukernavn, for Landsat (M2M) — se https://ers.cr.usgs.gov/profile/access
+USGS_M2M_TOKEN=...
 ```
 
 ### Fetch-token
@@ -70,6 +72,9 @@ FETCH_TOKEN=...   # Generer: php -r "echo bin2hex(random_bytes(24));"
 'thumbs_dir'      => __DIR__ . '/images/thumbs/'
 'data_dir'        => __DIR__ . '/data/'
 'metadata_file'   => __DIR__ . '/data/images.json'
+
+'usgs'            => [username, token, base_url, dataset, gdalwarp_cmd, gdal_translate_cmd, gdal_calc_cmd, gdalbuildvrt_cmd]
+'landsat_enabled' => false             // slå på Landsat-henting i fetch.php (krever gdal-bin/python3-gdal på serveren)
 ```
 
 OAuth2-klient opprettes på: https://shapps.dataspace.copernicus.eu/dashboard/#/account/settings  
@@ -83,7 +88,7 @@ OAuth2-klient opprettes på: https://shapps.dataspace.copernicus.eu/dashboard/#/
 |--------|-------------|
 | `?action=list` | Alle bilder (kun de med fil på disk + kart-oppføringer) |
 | `?action=fetch` | Henter nye bilder fra Copernicus — krever POST med `token` i body, rate-limitet til én kjøring per 10. min |
-| `?action=status` | Antall ekte bilder, AOI-info, om credentials er satt, nyeste S2-bilde |
+| `?action=status` | Antall ekte bilder, AOI-info, om credentials er satt, nyeste S2-bilde (S1/Landsat hoppes over) |
 | `?action=next` | Sjekker om nyere bilde er tilgjengelig i katalogen, eller estimerer neste dato — svaret caches i 15 min (`data/next_cache.json`) |
 
 ---
@@ -98,6 +103,7 @@ OAuth2-klient opprettes på: https://shapps.dataspace.copernicus.eu/dashboard/#/
 6. Metadata oppdateres i `data/images.json`
 7. Bilder eldre enn `keep_days` slettes automatisk
 8. Dager uten satellittdata får `type: "map"` i metadata
+9. Når `landsat_enabled` er `true`: samme flyt for Landsat 8-9 via USGS M2M (se eget avsnitt under), uavhengig av S2/S1 — en feilende M2M-kobling logges og hopper over Landsat for hele kjøringen, uten å påvirke S2/S1
 
 ---
 
@@ -107,6 +113,27 @@ OAuth2-klient opprettes på: https://shapps.dataspace.copernicus.eu/dashboard/#/
 - `false_color` — B08/B04/B03, gain 3.0 — vegetasjon rød, vann mørkt blått
 
 Begge bruker `dataMask` som alpha-kanal (transparent der satellitten ikke har data).
+
+---
+
+## Landsat (USGS M2M) — bak `landsat_enabled`-flagget
+
+Tredje PRO-panel, uavhengig kilde fra S2/S1. Bruker USGS sitt M2M API (`https://m2m.cr.usgs.gov/api/api/json/stable/`) mot datasettet `landsat_ot_c2_l2` (Landsat 8-9 Collection 2 Level-2).
+
+I motsetning til Sentinel Hub har M2M **ingen** ferdig-rendret bilde-API — kun rå GeoTIFF SR-bånd. `fetchImageLandsat()` i `fetch.php` bygger derfor en full GDAL-pipeline (krever `gdal-bin`/`python3-gdal` — se `scripts/setup_ubuntu.sh`):
+
+1. `download-options` → identifiser bånd (`SR_B5`/`SR_B4`/`SR_B3` for `false_color`, `SR_B4`/`SR_B3`/`SR_B2` for `true_color`, pluss `QA_PIXEL` for datamaske)
+2. `download-request` per bånd (synkron i praksis, med polling-fallback via `download-retrieve`)
+3. `gdalwarp` — reprojiser til EPSG:4326, beskjær til AOI, resample til `image_width`×`image_height` (bilinear for reflektans-bånd, nearest-neighbor for `QA_PIXEL` for å bevare bitmasken)
+4. `gdal_translate -ot Byte -scale` — DN → reflektans (`DN*0.0000275-0.2`) → gain (3.0/3.5, matcher S2-panelet), lineært til 0-255
+5. `gdal_calc.py` — alfamaske fra `QA_PIXEL` fill-bit (bit 0)
+6. `gdalbuildvrt -separate` → RGBA VRT → `gdal_translate -of PNG` → endelig PNG
+   (bevisst valgt fremfor `gdal_merge.py -separate`, som har en reprodusert bug der siste
+   bånd i output nulles ut uansett hvilken fil som ligger sist — se `BACKLOG.md`)
+
+Lagres som `images/YYYY-MM-DD-landsat.png` + thumbnail, metadata med `sensor: "LANDSAT"`, `type: "landsat"`. Attribusjon **"Credit: U.S. Geological Survey"** vises i panelet og i `help.php`, separat fra ESA/Copernicus-attribusjonen.
+
+`usgs.gdalwarp_cmd`/`gdal_translate_cmd`/`gdal_calc_cmd`/`gdal_merge_cmd` i `config.php` peker som standard på PATH-kommandoer (produksjon). For lokal Windows-testing overstyres disse med fulle stier til OSGeo4W (se kommentar i `config.php`).
 
 ---
 

@@ -2,6 +2,9 @@
 .sentinel.env
 *.env
 
+# Engangs testscript (M2M/GDAL-verifisering) — aldri committes
+/_test_*.php
+
 # Genererte filer og data
 images/
 data/

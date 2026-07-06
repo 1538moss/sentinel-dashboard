@@ -23,6 +23,7 @@
   --ochre:#8F6400;
   --red:#A93226;
   --violet:#5F4494;     /* radar/PRO */
+  --landsat:#B5651D;    /* Landsat/USGS — brent oransje */
   --font-mono:'IBM Plex Mono','Cascadia Code',Consolas,monospace;
   --font-display:'Big Shoulders Display','Arial Narrow',Impact,sans-serif;
   --font-ui:system-ui,-apple-system,sans-serif;
@@ -156,7 +157,8 @@ kbd{
         Klikk eller trykk på et miniatyrbilde i bunnen for å hoppe direkte til den datoen.
         I pro-modus vises små bokstaver øverst til høyre på miniatyrbildene:
         <span style="background:var(--ink);color:var(--paper);font-family:var(--font-mono);font-size:9px;font-weight:600;padding:1px 4px">O</span> = optisk bilde (Sentinel-2) &nbsp;
-        <span style="background:var(--violet);color:var(--paper);font-family:var(--font-mono);font-size:9px;font-weight:600;padding:1px 4px">R</span> = radarbilde (Sentinel-1)
+        <span style="background:var(--violet);color:var(--paper);font-family:var(--font-mono);font-size:9px;font-weight:600;padding:1px 4px">R</span> = radarbilde (Sentinel-1) &nbsp;
+        <span style="background:var(--landsat);color:var(--paper);font-family:var(--font-mono);font-size:9px;font-weight:600;padding:1px 4px">L</span> = Landsat 8-9
       </div>
     </div>
   </section>
@@ -189,8 +191,8 @@ kbd{
     <div class="row">
       <div class="key">Pro <span class="pro-tag">Pro</span></div>
       <div class="desc">
-        To bilder side om side — <strong>optisk</strong> (Sentinel-2) til venstre og
-        <strong>radar</strong> (Sentinel-1 SAR) til høyre.
+        Tre bilder side om side — <strong>optisk</strong> (Sentinel-2),
+        <strong>radar</strong> (Sentinel-1 SAR) og <strong>Landsat</strong> (Landsat 8-9).
         Fargetemaet skifter til <span style="color:var(--violet);font-weight:600">fiolett</span>.
         På mobil vises bildene under hverandre.
       </div>
@@ -260,6 +262,13 @@ kbd{
         Fungerer gjennom skyer og om natten.
       </div>
     </div>
+    <div class="row">
+      <div class="key">Landsat <span class="pro-tag">Pro</span></div>
+      <div class="desc">
+        Landsat 8-9 optisk bilde, samme fargemodus (falskt/naturlig) som Sentinel-2-panelet.
+        Lavere oppløsning og sjeldnere passeringer, men en uavhengig andreopinion på samme dato.
+      </div>
+    </div>
   </section>
 
   <section>
@@ -280,6 +289,13 @@ kbd{
       </div>
     </div>
     <div class="row">
+      <div class="key">Landsat 8-9 <span class="pro-tag">Pro</span></div>
+      <div class="desc">
+        Optisk kamera drevet av USGS/NASA. Passerer over Norge omtrent <strong>hvert 16. dag</strong> per satellitt,
+        så panelet viser «Ingen Landsat-data» de fleste dager — det er forventet, ikke en feil.
+      </div>
+    </div>
+    <div class="row">
       <div class="key">Ingen bilde</div>
       <div class="desc">
         Dager uten tilgjengelig satellittbilde vises med bakgrunnskartet og teksten «Ingen satellittbilde».
@@ -289,6 +305,9 @@ kbd{
     <div class="note">
       Data fra European Space Agency (ESA) / Copernicus Data Space.
       Inneholder modifiserte Copernicus Sentinel-data.
+    </div>
+    <div class="note">
+      <strong>Credit: U.S. Geological Survey.</strong> Landsat-bilder er levert av USGS/NASA og er ikke en del av Copernicus-programmet.
     </div>
   </section>
 

@@ -27,6 +27,7 @@
   --ochre:#8F6400;
   --red:#A93226;
   --violet:#5F4494;     /* radar/PRO */
+  --landsat:#B5651D;    /* Landsat/USGS — brent oransje */
   --accent:var(--blue);
   --font-mono:'IBM Plex Mono','Cascadia Code',Consolas,monospace;
   --font-display:'Big Shoulders Display','Arial Narrow',Impact,sans-serif;
@@ -291,6 +292,7 @@ html,body{height:100%;overflow:hidden;background:var(--paper);color:var(--ink)}
 }
 .tl-badge-o{background:var(--ink);color:var(--paper)}
 .tl-badge-r{background:var(--violet);color:var(--paper)}
+.tl-badge-l{background:var(--landsat);color:var(--paper)}
 
 /* ── MOBILE ── */
 @media(max-width:640px){
@@ -393,6 +395,13 @@ body.pro-mode{
 }
 .pro-label-radar{border-color:var(--violet);color:var(--violet)}
 .pro-label-radar{top:auto;bottom:8px;}
+.pro-label-landsat{border-color:var(--landsat);color:var(--landsat);top:auto;bottom:8px;right:8px;left:auto}
+.usgs-credit{
+  position:absolute;bottom:8px;left:8px;z-index:4;
+  font-family:var(--font-mono);font-size:8px;letter-spacing:.08em;
+  color:var(--muted);background:rgba(231,227,214,.92);
+  padding:2px 6px;pointer-events:none;
+}
 
 /* Mobil: fullbredde kvadratiske paneler som ruller vertikalt,
    slik at bildene ikke krymper til halv høyde */
@@ -463,6 +472,7 @@ const AOI = <?= json_encode($cfg['aoi'] ?? null) ?>;
 let allImages = [];
 let primaryImages = [];
 let s1ByDate = {};
+let landsatByDate = {};
 let images = [];
 let idx = 0;
 let flashTimer = null;
@@ -480,9 +490,11 @@ async function loadImages() {
     allImages = data.images || [];
 
     s1ByDate = {};
+    landsatByDate = {};
     primaryImages = [];
     for (const img of allImages) {
       if (img.sensor === 'S1' || img.type === 'radar') s1ByDate[img.date] = img;
+      else if (img.sensor === 'LANDSAT' || img.type === 'landsat') landsatByDate[img.date] = img;
       else primaryImages.push(img);
     }
     images = filterActive ? applyFilter(primaryImages) : primaryImages;
@@ -659,6 +671,27 @@ function buildS1Frame(s1) {
   return frame;
 }
 
+function buildLandsatFrame(landsat) {
+  const frame = document.createElement('div');
+  frame.className = 'img-frame';
+  ['tl','tr','bl','br'].forEach(pos => {
+    const c = document.createElement('span');
+    c.className = `corner corner-${pos}`;
+    frame.appendChild(c);
+  });
+  const el = document.createElement('img');
+  el.src     = `images/${landsat.filename}`;
+  el.alt     = landsat.date + ' Landsat';
+  el.loading = 'lazy';
+  el.addEventListener('click', e => { e.stopPropagation(); if (zoomState?.dragMoved) return; toggleZoom(el, frame, e); });
+  frame.appendChild(el);
+  const credit = document.createElement('div');
+  credit.className = 'usgs-credit';
+  credit.textContent = 'Credit: U.S. Geological Survey';
+  frame.appendChild(credit);
+  return frame;
+}
+
 function buildSlides() {
   const stage = document.getElementById('stage');
   stage.innerHTML = '';
@@ -689,8 +722,18 @@ function buildSlides() {
       const s1 = s1ByDate[img.date];
       rp.appendChild(s1?.filename ? buildS1Frame(s1) : buildNoDataFrame('Ingen radardata'));
 
+      const lsp = document.createElement('div');
+      lsp.className = 'pro-panel';
+      const lslabel = document.createElement('div');
+      lslabel.className = 'pro-label pro-label-landsat';
+      lslabel.textContent = 'Landsat';
+      lsp.appendChild(lslabel);
+      const landsat = landsatByDate[img.date];
+      lsp.appendChild(landsat?.filename ? buildLandsatFrame(landsat) : buildNoDataFrame('Ingen Landsat-data'));
+
       split.appendChild(lp);
       split.appendChild(rp);
+      split.appendChild(lsp);
       slide.appendChild(split);
     } else {
       slide.appendChild(buildImgFrame(img, i));
@@ -754,11 +797,13 @@ function buildTimeline() {
     if (proMode) {
       const hasO = img.type !== 'map' && !!img.filename;
       const hasR = !!s1ByDate[img.date]?.filename;
-      if (hasO || hasR) {
+      const hasL = !!landsatByDate[img.date]?.filename;
+      if (hasO || hasR || hasL) {
         const badges = document.createElement('div');
         badges.className = 'tl-badges';
         if (hasO) { const b = document.createElement('span'); b.className = 'tl-badge tl-badge-o'; b.textContent = 'O'; badges.appendChild(b); }
         if (hasR) { const b = document.createElement('span'); b.className = 'tl-badge tl-badge-r'; b.textContent = 'R'; badges.appendChild(b); }
+        if (hasL) { const b = document.createElement('span'); b.className = 'tl-badge tl-badge-l'; b.textContent = 'L'; badges.appendChild(b); }
         item.appendChild(badges);
       }
     }

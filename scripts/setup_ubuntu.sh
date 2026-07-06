@@ -14,6 +14,12 @@ echo "--- installer PHP og utvidelser ---"
 sudo apt-get update -qq
 sudo apt-get install -y php libapache2-mod-php php-curl php-gd
 
+echo "--- installer GDAL (Landsat-pipeline) ---"
+sudo apt-get install -y gdal-bin python3-gdal
+echo "  gdalwarp: $(command -v gdalwarp || echo 'IKKE FUNNET')"
+echo "  gdalbuildvrt: $(command -v gdalbuildvrt || echo 'IKKE FUNNET')"
+echo "  gdal_calc.py: $(command -v gdal_calc.py || echo 'IKKE FUNNET — sjekk at python3-gdal ga kjørbare scripts på PATH')"
+
 echo "--- aktiver Apache-moduler ---"
 sudo a2enmod rewrite headers
 

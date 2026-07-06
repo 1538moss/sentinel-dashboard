@@ -24,6 +24,28 @@ return [
     // ── Hent-token (beskytter ?action=fetch mot misbruk) ─────────────────────
     'fetch_token' => $env['FETCH_TOKEN'] ?? '',
 
+    // ── USGS M2M (Landsat 8-9) — uavhengig av Sentinel Hub-blokken over ──────
+    'usgs' => [
+        'username' => $env['USGS_USERNAME']  ?? '',
+        'token'    => $env['USGS_M2M_TOKEN'] ?? '',
+        'base_url' => 'https://m2m.cr.usgs.gov/api/api/json/stable/',
+        'dataset'  => 'landsat_ot_c2_l2',
+
+        // GDAL-kommandoer for fetchImageLandsat()-pipelinen. Standard antar
+        // gdalwarp/gdal_translate/gdal_calc.py/gdal_merge.py på PATH (produksjon:
+        // apt install gdal-bin python3-gdal). For lokal Windows-testing, overstyr
+        // med fulle stier i en lokal config-override, f.eks.:
+        //   'gdalwarp_cmd'       => '"C:/OSGeo4W/bin/gdalwarp.exe"',
+        //   'gdal_translate_cmd' => '"C:/OSGeo4W/bin/gdal_translate.exe"',
+        //   'gdal_calc_cmd'      => '"C:/OSGeo4W/apps/Python312/python.exe" "C:/OSGeo4W/apps/Python312/Scripts/gdal_calc.py"',
+        //   'gdalbuildvrt_cmd'   => '"C:/OSGeo4W/bin/gdalbuildvrt.exe"',
+        'gdalwarp_cmd'       => 'gdalwarp',
+        'gdal_translate_cmd' => 'gdal_translate',
+        'gdal_calc_cmd'      => 'gdal_calc.py',
+        'gdalbuildvrt_cmd'   => 'gdalbuildvrt',
+    ],
+    'landsat_enabled' => false,
+
     // ── Geografisk område (WGS84) ────────────────────────────────────────────
     'aoi' => [
         'west'  => 10.60,

@@ -26,8 +26,10 @@ foreach ($dates as $d) {
     $targets = [
         $config['images_dir'] . $d . '.png',
         $config['images_dir'] . $d . '-s1.png',
+        $config['images_dir'] . $d . '-landsat.png',
         $config['thumbs_dir'] . $d . '.jpg',
         $config['thumbs_dir'] . $d . '-s1.jpg',
+        $config['thumbs_dir'] . $d . '-landsat.jpg',
     ];
     $found = false;
     foreach ($targets as $path) {
