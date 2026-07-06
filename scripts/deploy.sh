@@ -19,6 +19,15 @@ echo "--- gi ${SERVER_USER} skrivetilgang ---"
 ssh "${SERVER_USER}@${SERVER_HOST}" \
     "sudo chown -R ${SERVER_USER}:${SERVER_USER} ${APP_DIR}"
 
+echo "--- sjekk GDAL (kreves for Landsat-pipeline) ---"
+ssh "${SERVER_USER}@${SERVER_HOST}" \
+    "if ! command -v gdalwarp >/dev/null || ! command -v gdalbuildvrt >/dev/null || ! command -v gdal_calc.py >/dev/null; then
+        echo '  Mangler GDAL — installerer gdal-bin python3-gdal...'
+        sudo apt-get update -qq && sudo apt-get install -y gdal-bin python3-gdal
+    else
+        echo '  GDAL er allerede installert'
+    fi"
+
 echo "--- rsync filer ---"
 rsync -avz --delete \
     --exclude='.git/' \

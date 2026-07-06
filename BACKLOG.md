@@ -29,5 +29,5 @@ Landsat 8-9 (USGS M2M API) som tredje bildekilde i PRO-modus, ved siden av S2 op
 **Gjenstående steg:**
 1. ~~Bruker bekrefter visuelt i nettleser~~ — bekreftet 2026-07-06 (tredje panel, USGS-credit, L-badge, brent oransje "Landsat"-tag vises korrekt)
 2. ~~Slett testscript~~ — `_test_m2m.php`, `_test_gdal_pipeline.php`, `_test_landsat_e2e.php` fjernet
-3. Installer `gdal-bin python3-gdal` på produksjonsserveren (`scripts/setup_ubuntu.sh`, kjøres manuelt via ssh)
-4. Sett `landsat_enabled => true` i produksjons-config først etter punkt 3 er bekreftet
+3. ~~Installer gdal-bin/python3-gdal på produksjonsserveren~~ — `scripts/deploy.sh` sjekker og installerer nå automatisk ved hver deploy
+4. Sett `landsat_enabled => true` i produksjons-config (og `USGS_USERNAME`/`USGS_M2M_TOKEN` i `/var/www/.sentinel.env`) etter neste deploy

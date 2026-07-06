@@ -168,6 +168,8 @@ bash scripts/deploy.sh
 
 Ekskluderer: `images/`, `data/`, `scripts/`, `*.env`, `.git/`, `.claude/`
 
+`deploy.sh` sjekker og installerer automatisk `gdal-bin`/`python3-gdal` på serveren hvis de mangler (kreves for Landsat-pipeline før `landsat_enabled` kan slås på).
+
 ### Etter første deploy (engangs)
 ```bash
 sudo php /var/www/sentinel/generate_thumbs.php
