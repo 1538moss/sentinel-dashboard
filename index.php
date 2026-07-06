@@ -362,7 +362,12 @@ body.pro-mode{
 .pro-panel{
   position:relative;flex:1 1 0;min-width:0;
   display:flex;align-items:center;justify-content:center;
-  overflow:hidden;background:var(--paper);
+  overflow:hidden;
+  background-image:url('mapbg.php?v=3');
+  background-size:contain;
+  background-position:center;
+  background-repeat:no-repeat;
+  background-color:var(--paper);
 }
 /* Bilder i paneler: fjern original ramme-styling, la img fylle panelet */
 .pro-panel .img-frame{
@@ -379,13 +384,6 @@ body.pro-mode{
    ellers ankres den mot venstre kant og havner forskjøvet vest for innsjøen */
 .pro-panel .img-frame img.lake-overlay{
   width:100%;height:100%;
-}
-/* Kart-placeholder i panel: vis kartet som bakgrunn */
-.pro-panel .img-frame.map-only{
-  background-image:url('mapbg.php?v=3');
-  background-size:contain;
-  background-position:center;
-  background-repeat:no-repeat;
 }
 .pro-label{
   position:absolute;top:8px;left:8px;z-index:4;
@@ -685,6 +683,16 @@ function buildLandsatFrame(landsat) {
   el.loading = 'lazy';
   el.addEventListener('click', e => { e.stopPropagation(); if (zoomState?.dragMoved) return; toggleZoom(el, frame, e); });
   frame.appendChild(el);
+
+  if (landsat.cloud_cover !== null && landsat.cloud_cover > 50) {
+    const ov = document.createElement('img');
+    ov.src       = 'assets/lake_overlay.png';
+    ov.className = 'lake-overlay';
+    ov.alt       = '';
+    ov.onerror   = () => ov.remove();
+    frame.appendChild(ov);
+  }
+
   const credit = document.createElement('div');
   credit.className = 'usgs-credit';
   credit.textContent = 'Credit: U.S. Geological Survey';
