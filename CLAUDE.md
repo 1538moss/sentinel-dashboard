@@ -190,13 +190,15 @@ sudo -u www-data php cleanup.php 2026-06-30 2026-07-01
 
 ---
 
-## Cron (automatisk henting, kl. 07)
+## Cron (automatisk henting, hver 6. time)
 
 Registrert i `www-data` sin crontab (`sudo crontab -u www-data -e`), slik at bilder/thumbnails opprettes med samme eierskap som Apache selv — se merknaden under manuell bildeinnhenting.
 
 ```
-0 7 * * * php /var/www/sentinel/fetch.php >> /var/www/sentinel/data/fetch.log 2>&1
+0 */6 * * * php /var/www/sentinel/fetch.php >> /var/www/sentinel/data/fetch.log 2>&1
 ```
+
+Kjører kl. 00, 06, 12, 18. Trygt å kjøre oftere enn én gang daglig — `fetch.php` hopper over datoer som allerede er lastet ned (skip-liste basert på fil-på-disk), så hyppigere kjøring fanger bare opp nye S2/S1/Landsat-scener raskere.
 
 ---
 
