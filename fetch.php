@@ -415,6 +415,10 @@ JS;
         if (!is_resource($proc)) {
             throw new RuntimeException("Kunne ikke starte GDAL-kommando: $cmd");
         }
+        // Drain stdout i stedet for å lukke den mens prosessen kjører — GDAL skriver
+        // fremdriftspunktum til stdout som standard, og å lukke pipen tidlig kan gi
+        // SIGPIPE/EPIPE på Linux (ikke reprodusert på Windows der pipelinen ble testet).
+        stream_get_contents($pipes[1]);
         fclose($pipes[1]);
         $stderr = stream_get_contents($pipes[2]);
         fclose($pipes[2]);
@@ -468,7 +472,9 @@ JS;
             }
         }
 
-        $scratchDir = $this->config['data_dir'] . 'landsat_tmp/' . $date . '/';
+        // PID i mappenavnet: unngår kollisjon hvis to fetch.php-kjøringer (cron + manuell,
+        // eller to overlappende cron-tikk) henter samme dato samtidig.
+        $scratchDir = $this->config['data_dir'] . 'landsat_tmp/' . $date . '_' . getmypid() . '/';
         if (!is_dir($scratchDir)) mkdir($scratchDir, 0755, true);
 
         try {
@@ -482,7 +488,12 @@ JS;
 
                 $url = $drResp['data']['availableDownloads'][0]['url'] ?? null;
                 if (!$url) {
-                    $downloadId = $drResp['data']['preparingDownloads'][0]['downloadId'] ?? null;
+                    // duplicateProducts: samme entity/product ble allerede forespurt i et
+                    // fortsatt aktivt vindu (f.eks. en tidligere kjøring som ble avbrutt
+                    // midt i bånd-nedlastingen) — polles på samme måte som preparingDownloads.
+                    $downloadId = $drResp['data']['preparingDownloads'][0]['downloadId']
+                        ?? $drResp['data']['duplicateProducts'][0]['downloadId']
+                        ?? null;
                     if ($downloadId === null) {
                         throw new RuntimeException("Ingen nedlastings-URL for bånd $band ($entityId)");
                     }
@@ -531,9 +542,14 @@ JS;
                 $this->runGdal("$gdalwarp -overwrite -t_srs EPSG:4326 -te $bbox -ts $w $h -r bilinear -srcnodata 0 -dstnodata 0 " . escapeshellarg($src) . ' ' . escapeshellarg($dst));
             }
 
-            // 2. Reprojiser+beskjær QA_PIXEL (nearest-neighbor — bevarer bitmaske)
+            // 2. Reprojiser+beskjær QA_PIXEL (nearest-neighbor — bevarer bitmaske).
+            //    -dstnodata 1 (ikke 0!): utenfor kildescenens dekning har gdalwarp ingen
+            //    pikselverdi å hente og ville ellers fylt med rå 0 — men bit0=0 betyr "ekte
+            //    data" i alfaformelen under, så det ville gitt en ugjennomsiktig kant der
+            //    scenen faktisk ikke dekker AOI. QA_PIXEL sin egen fill-verdi har bit0=1,
+            //    så 1 er riktig fyllverdi (ikke 0, som er en helt gyldig ekte skydekke-avlesning).
             $qaWarp = $scratchDir . 'QA_PIXEL_warp.tif';
-            $this->runGdal("$gdalwarp -overwrite -t_srs EPSG:4326 -te $bbox -ts $w $h -r near " . escapeshellarg($localFiles['QA_PIXEL']) . ' ' . escapeshellarg($qaWarp));
+            $this->runGdal("$gdalwarp -overwrite -t_srs EPSG:4326 -te $bbox -ts $w $h -r near -dstnodata 1 " . escapeshellarg($localFiles['QA_PIXEL']) . ' ' . escapeshellarg($qaWarp));
 
             // 3. DN → reflectance → gain, lineært til Byte 0-255
             //    reflectance = DN*0.0000275-0.2 ; byte = clip(reflectance*gain,0,1)*255
@@ -561,8 +577,8 @@ JS;
             $this->runGdal("$gdalTranslate -of PNG " . escapeshellarg($vrt) . ' ' . escapeshellarg($png));
 
             $imageData = file_get_contents($png);
-            if ($imageData === false) {
-                throw new RuntimeException("Kunne ikke lese ferdig Landsat-PNG: $png");
+            if ($imageData === false || $imageData === '') {
+                throw new RuntimeException("Kunne ikke lese ferdig Landsat-PNG (tom eller manglende fil): $png");
             }
             return $imageData;
         } finally {
@@ -802,6 +818,10 @@ JS;
             $day->modify('+1 day');
         }
 
+        // Lagre fortløpende: hvis kjøringen blir drept midt i den trege Landsat-pollingen
+        // under, skal ikke S2-bilder som allerede er lastet ned i dette passet gå tapt.
+        $this->saveMetadata($metadata);
+
         // ── S1 (kun når product === 'pro') ───────────────────────────────────
         if (($this->config['product'] ?? 'std') === 'pro') {
             $s1Dates = $this->searchDatesS1($startDate, $endDate);
@@ -862,6 +882,10 @@ JS;
                     $this->log("S1 FEIL  $date  " . $e->getMessage());
                 }
             }
+
+            // Lagre fortløpende av samme grunn som over — S1 skal ikke gå tapt hvis
+            // Landsat-pollingen under blir avbrutt.
+            $this->saveMetadata($metadata);
         }
 
         // ── Landsat (kun når landsat_enabled === true) ───────────────────────
@@ -987,7 +1011,24 @@ JS;
             $this->saveMetadata(array_values($metadata));
         }
 
+        $this->purgeStaleLandsatScratch();
+
         return $deleted;
+    }
+
+    // ── Rydd opp landsat_tmp/-mapper som ble liggende igjen etter en avbrutt kjøring
+    //    (f.eks. drept av PHP sin execution-time-limit midt i GDAL-pipelinen) ────────
+    private function purgeStaleLandsatScratch(): void
+    {
+        $base = $this->config['data_dir'] . 'landsat_tmp/';
+        if (!is_dir($base)) return;
+
+        $cutoff = time() - 6 * 3600; // eldre enn én cron-syklus regnes som forlatt
+        foreach (glob($base . '*', GLOB_ONLYDIR) ?: [] as $dir) {
+            if (filemtime($dir) >= $cutoff) continue;
+            foreach (glob($dir . '/*') ?: [] as $f) unlink($f);
+            @rmdir($dir);
+        }
     }
 }
 

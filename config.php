@@ -32,7 +32,7 @@ return [
         'dataset'  => 'landsat_ot_c2_l2',
 
         // GDAL-kommandoer for fetchImageLandsat()-pipelinen. Standard antar
-        // gdalwarp/gdal_translate/gdal_calc.py/gdal_merge.py på PATH (produksjon:
+        // gdalwarp/gdal_translate/gdal_calc.py/gdalbuildvrt på PATH (produksjon:
         // apt install gdal-bin python3-gdal). For lokal Windows-testing, overstyr
         // med fulle stier i en lokal config-override, f.eks.:
         //   'gdalwarp_cmd'       => '"C:/OSGeo4W/bin/gdalwarp.exe"',

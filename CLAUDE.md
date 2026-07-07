@@ -133,7 +133,7 @@ I motsetning til Sentinel Hub har M2M **ingen** ferdig-rendret bilde-API — kun
 
 Lagres som `images/YYYY-MM-DD-landsat.png` + thumbnail, metadata med `sensor: "LANDSAT"`, `type: "landsat"`. Attribusjon **"Credit: U.S. Geological Survey"** vises i panelet og i `help.php`, separat fra ESA/Copernicus-attribusjonen.
 
-`usgs.gdalwarp_cmd`/`gdal_translate_cmd`/`gdal_calc_cmd`/`gdal_merge_cmd` i `config.php` peker som standard på PATH-kommandoer (produksjon). For lokal Windows-testing overstyres disse med fulle stier til OSGeo4W (se kommentar i `config.php`).
+`usgs.gdalwarp_cmd`/`gdal_translate_cmd`/`gdal_calc_cmd`/`gdalbuildvrt_cmd` i `config.php` peker som standard på PATH-kommandoer (produksjon). For lokal Windows-testing overstyres disse med fulle stier til OSGeo4W (se kommentar i `config.php`).
 
 ---
 
@@ -147,7 +147,8 @@ Lagres som `images/YYYY-MM-DD-landsat.png` + thumbnail, metadata med `sensor: "L
 | Datoflash | Dato + skydekke vises i 1 sek ved bildeskift |
 | Tidslinje | Thumbnail-basert (JPEG) for lav båndbredde |
 | Filter | `☁ <50%`-knapp skjuler skydekte dager og kart |
-| Neste bilde | Estimert neste dato vises i header |
+| Neste bilde | Klart-badge vises i header når nytt bilde er tilgjengelig (ingen estimert-dato lenger) |
+| Landsat-fallback (Std) | I Std-modus (ikke Pro): mangler S2-bilde for en dato, men finnes Landsat-bilde for samme dato → vises Landsat-bildet i hovedvisningen i stedet for kart, merket «Landsat (erstatning)» + USGS-kreditering. Pro-modus er upåvirket (viser alltid egen Landsat-panel uavhengig av S2). |
 | Mobil | Forenklet header under 640px |
 
 ### Tastaturnavigasjon

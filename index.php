@@ -467,6 +467,7 @@ body.pro-mode{
 const API = 'api.php';
 const FETCH_TOKEN = <?= json_encode($cfg['fetch_token'] ?? '') ?>;
 const AOI = <?= json_encode($cfg['aoi'] ?? null) ?>;
+const LANDSAT_ENABLED = <?= json_encode($cfg['landsat_enabled'] ?? false) ?>;
 let allImages = [];
 let primaryImages = [];
 let s1ByDate = {};
@@ -520,9 +521,6 @@ async function loadNext() {
       el.className = 'next-badge available';
       el.innerHTML = `⬇ Nytt bilde klart: <span>${formatDate(data.date)}</span>` +
         (data.cloud_cover !== null ? ` <span>(${data.cloud_cover}%)</span>` : '');
-    } else if (data.status === 'estimated') {
-      el.className = 'next-badge';
-      el.innerHTML = `Neste bilde ~<span>${formatDate(data.estimated)}</span>`;
     }
   } catch (_) {}
 }
@@ -558,7 +556,13 @@ async function triggerFetch() {
 
 // ── Filter ───────────────────────────────────────────────────────────────────
 function applyFilter(list) {
-  return list.filter(img => img.type !== 'map' && img.cloud_cover !== null && img.cloud_cover < 50);
+  return list.filter(img => {
+    if (img.type === 'map') {
+      const landsat = !proMode ? landsatByDate[img.date] : null;
+      return !!landsat && landsat.cloud_cover !== null && landsat.cloud_cover < 50;
+    }
+    return img.cloud_cover !== null && img.cloud_cover < 50;
+  });
 }
 
 function toggleFilter() {
@@ -623,7 +627,11 @@ function buildNoDataFrame(label) {
 }
 
 function buildImgFrame(img, i) {
-  if (img.type === 'map') return buildNoDataFrame('Ingen satellittbilde');
+  if (img.type === 'map') {
+    const landsat = !proMode ? landsatByDate[img.date] : null;
+    if (landsat?.filename) return buildLandsatFrame(landsat, true);
+    return buildNoDataFrame('Ingen satellittbilde');
+  }
 
   const frame = document.createElement('div');
   frame.className = 'img-frame';
@@ -669,7 +677,7 @@ function buildS1Frame(s1) {
   return frame;
 }
 
-function buildLandsatFrame(landsat) {
+function buildLandsatFrame(landsat, standalone = false) {
   const frame = document.createElement('div');
   frame.className = 'img-frame';
   ['tl','tr','bl','br'].forEach(pos => {
@@ -677,6 +685,7 @@ function buildLandsatFrame(landsat) {
     c.className = `corner corner-${pos}`;
     frame.appendChild(c);
   });
+  if (standalone) addCoords(frame);
   const el = document.createElement('img');
   el.src     = `images/${landsat.filename}`;
   el.alt     = landsat.date + ' Landsat';
@@ -691,6 +700,13 @@ function buildLandsatFrame(landsat) {
     ov.alt       = '';
     ov.onerror   = () => ov.remove();
     frame.appendChild(ov);
+  }
+
+  if (standalone) {
+    const label = document.createElement('div');
+    label.className = 'pro-label pro-label-landsat';
+    label.textContent = 'Landsat (erstatning)';
+    frame.appendChild(label);
   }
 
   const credit = document.createElement('div');
@@ -730,18 +746,21 @@ function buildSlides() {
       const s1 = s1ByDate[img.date];
       rp.appendChild(s1?.filename ? buildS1Frame(s1) : buildNoDataFrame('Ingen radardata'));
 
-      const lsp = document.createElement('div');
-      lsp.className = 'pro-panel';
-      const lslabel = document.createElement('div');
-      lslabel.className = 'pro-label pro-label-landsat';
-      lslabel.textContent = 'Landsat';
-      lsp.appendChild(lslabel);
-      const landsat = landsatByDate[img.date];
-      lsp.appendChild(landsat?.filename ? buildLandsatFrame(landsat) : buildNoDataFrame('Ingen Landsat-data'));
-
       split.appendChild(lp);
       split.appendChild(rp);
-      split.appendChild(lsp);
+
+      if (LANDSAT_ENABLED) {
+        const lsp = document.createElement('div');
+        lsp.className = 'pro-panel';
+        const lslabel = document.createElement('div');
+        lslabel.className = 'pro-label pro-label-landsat';
+        lslabel.textContent = 'Landsat';
+        lsp.appendChild(lslabel);
+        const landsat = landsatByDate[img.date];
+        lsp.appendChild(landsat?.filename ? buildLandsatFrame(landsat) : buildNoDataFrame('Ingen Landsat-data'));
+        split.appendChild(lsp);
+      }
+
       slide.appendChild(split);
     } else {
       slide.appendChild(buildImgFrame(img, i));
@@ -773,7 +792,9 @@ function buildTimeline() {
     item.dataset.idx = i;
     item.setAttribute('role', 'button');
     item.setAttribute('tabindex', '0');
-    item.setAttribute('aria-label', formatDate(img.date) + (img.type === 'map' ? ' — ingen satellittbilde' : ''));
+    const landsatFallback = (!proMode && img.type === 'map') ? landsatByDate[img.date] : null;
+
+    item.setAttribute('aria-label', formatDate(img.date) + (img.type === 'map' && !landsatFallback ? ' — ingen satellittbilde' : ''));
     item.onclick = () => goTo(i);
     item.onkeydown = e => {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goTo(i); }
@@ -789,6 +810,13 @@ function buildTimeline() {
         if (img.filename) thumb.src = `images/${img.filename}`;
         else thumb.style.display = 'none';
       };
+      item.appendChild(thumb);
+    } else if (landsatFallback && (landsatFallback.thumbnail || landsatFallback.filename)) {
+      const thumb = document.createElement('img');
+      thumb.src     = landsatFallback.thumbnail ? `images/thumbs/${landsatFallback.thumbnail}` : `images/${landsatFallback.filename}`;
+      thumb.alt     = img.date + ' Landsat';
+      thumb.loading = 'lazy';
+      thumb.onerror = () => { thumb.style.display = 'none'; };
       item.appendChild(thumb);
     } else {
       const ph = document.createElement('div');
@@ -814,6 +842,11 @@ function buildTimeline() {
         if (hasL) { const b = document.createElement('span'); b.className = 'tl-badge tl-badge-l'; b.textContent = 'L'; badges.appendChild(b); }
         item.appendChild(badges);
       }
+    } else if (landsatFallback) {
+      const badges = document.createElement('div');
+      badges.className = 'tl-badges';
+      const b = document.createElement('span'); b.className = 'tl-badge tl-badge-l'; b.textContent = 'L'; badges.appendChild(b);
+      item.appendChild(badges);
     }
 
     tl.appendChild(item);
@@ -845,12 +878,14 @@ function goTo(i) {
   document.getElementById('counter').textContent = `${i + 1} / ${images.length}`;
 
   const img = images[i];
-  const cc = img.cloud_cover;
+  const landsatFallback = (!proMode && img.type === 'map') ? landsatByDate[img.date] : null;
+  const cc = landsatFallback ? landsatFallback.cloud_cover : img.cloud_cover;
+  const isNoData = img.type === 'map' && !landsatFallback;
 
   // Date flash
   const flashEl = document.getElementById('date-flash');
   const ccColor = cc === null ? '' : cc < 20 ? '#256B43' : cc < 50 ? '#8F6400' : '#A93226';
-  const ccHtml = img.type === 'map'
+  const ccHtml = isNoData
     ? `<span style="font-size:.45em;color:var(--muted);display:block;margin-top:.2em;text-align:center">Ingen satellittdata</span>`
     : cc !== null
       ? `<span style="font-size:.45em;color:${ccColor};display:block;margin-top:.2em;text-align:center">${cc}% skydekke</span>`
@@ -863,11 +898,12 @@ function goTo(i) {
   // Info bar
   document.getElementById('info-date').textContent = formatDate(img.date);
   const ccClass = cc === null ? '' : cc < 20 ? 'cloud-good' : cc < 50 ? 'cloud-ok' : 'cloud-bad';
-  const ccText  = img.type === 'map' ? 'Ingen satellittdata — viser kart'
+  const ccText  = isNoData ? 'Ingen satellittdata — viser kart'
                 : cc !== null ? cc + '% skydekke' : 'Ukjent skydekke';
   document.getElementById('info-meta').innerHTML =
     `<span class="${ccClass}">${ccText}</span>` +
-    (img.type !== 'map' ? `<span>Contains modified Copernicus Sentinel data ${img.date.slice(0,4)}</span>` : '');
+    (landsatFallback ? `<span>Credit: U.S. Geological Survey</span>`
+      : img.type !== 'map' ? `<span>Contains modified Copernicus Sentinel data ${img.date.slice(0,4)}</span>` : '');
 }
 
 // ── Zoom ──────────────────────────────────────────────────────────────────────
