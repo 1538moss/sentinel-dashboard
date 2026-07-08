@@ -99,13 +99,12 @@ try {
 
             // Finn siste ekte S2-bilde (ikke kart, ikke S1-radar, ikke Landsat)
             $latestDate = null;
-            $imageDates = [];
             foreach ($metadata as $m) {
                 if (($m['type'] ?? '') === 'map') continue;
                 if (in_array($m['sensor'] ?? '', ['S1', 'LANDSAT'], true)) continue;
                 if (!empty($m['filename'])) {
-                    if ($latestDate === null) $latestDate = $m['date'];
-                    $imageDates[] = $m['date'];
+                    $latestDate = $m['date'];
+                    break;
                 }
             }
 
@@ -133,26 +132,7 @@ try {
                 break;
             }
 
-            // Estimer neste dato basert på gjennomsnittlig intervall mellom bilder
-            $estimated = null;
-            if (count($imageDates) >= 2) {
-                $intervals = [];
-                for ($i = 0; $i < min(6, count($imageDates) - 1); $i++) {
-                    $intervals[] = (strtotime($imageDates[$i]) - strtotime($imageDates[$i + 1])) / 86400;
-                }
-                $avgDays   = round(array_sum($intervals) / count($intervals));
-                $estimated = date('Y-m-d', strtotime($latestDate . " +{$avgDays} days"));
-            } else {
-                $estimated = date('Y-m-d', strtotime($latestDate . ' +3 days'));
-            }
-
-            $json = json_encode([
-                'ok'        => true,
-                'status'    => 'estimated',
-                'latest'    => $latestDate,
-                'estimated' => $estimated,
-                'days_left' => max(0, (strtotime($estimated) - strtotime($today)) / 86400),
-            ]);
+            $json = json_encode(['ok' => true, 'status' => 'unavailable', 'latest' => $latestDate]);
             file_put_contents($cacheFile, $json);
             echo $json;
             break;

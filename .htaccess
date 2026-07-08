@@ -1,3 +1,10 @@
+# Sikkerhetsheadere
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set X-Frame-Options "SAMEORIGIN"
+</IfModule>
+
 # Beskytt config og data mot direkte henting
 <FilesMatch "^(config|fetch|cleanup|generate_thumbs)\.php$">
     Require all denied
@@ -18,3 +25,11 @@
 <FilesMatch "^api\.php$">
     Header set Cache-Control "no-store, no-cache"
 </FilesMatch>
+
+# Bilder, thumbnails og fonter endres aldri etter at de er skrevet
+# (datostemplet filnavn / versjonert), så de kan caches lenge hos klienten
+<IfModule mod_headers.c>
+    <FilesMatch "\.(png|jpe?g|woff2?|svg)$">
+        Header set Cache-Control "public, max-age=2592000, immutable"
+    </FilesMatch>
+</IfModule>

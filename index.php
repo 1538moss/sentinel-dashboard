@@ -5,10 +5,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Vansjø · Sentinel-arkiv</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;600;700&display=swap" rel="stylesheet">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<meta name="description" content="Daglige Sentinel-2/1- og Landsat-satellittbilder av Vansjø, Moss — fullskjerm slideshow med skydekke-info og tidslinje.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Vansjø · Sentinel-satellittarkiv">
+<meta property="og:description" content="Daglige satellittbilder av Vansjø, Moss, fra Sentinel-2/1 (ESA) og Landsat (USGS).">
+<meta property="og:url" content="https://kart.vansjo.top/">
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+<link rel="stylesheet" href="assets/fonts/fonts.css">
 <style>
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
 
