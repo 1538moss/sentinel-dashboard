@@ -159,7 +159,7 @@ class SentinelFetcher
     }
 
     // ── Catalog search ────────────────────────────────────────────────────────
-    /** Returnerer array med ['date'=>'YYYY-MM-DD', 'cloud_cover'=>float] */
+    /** Returnerer array med ['date'=>'YYYY-MM-DD', 'cloud_cover'=>float, 'acquired_at'=>ISO8601] */
     public function searchDates(string $from, string $to): array
     {
         $token = $this->getToken();
@@ -204,7 +204,7 @@ class SentinelFetcher
             $date  = substr($f['properties']['datetime'], 0, 10);
             $cloud = (float)($f['properties']['eo:cloud_cover'] ?? 100);
             if (!isset($byDate[$date]) || $cloud < $byDate[$date]['cloud_cover']) {
-                $byDate[$date] = ['date' => $date, 'cloud_cover' => round($cloud, 1)];
+                $byDate[$date] = ['date' => $date, 'cloud_cover' => round($cloud, 1), 'acquired_at' => $f['properties']['datetime']];
             }
         }
 
@@ -214,7 +214,7 @@ class SentinelFetcher
     }
 
     // ── Sentinel-1 catalog search ─────────────────────────────────────────────
-    /** Returnerer array med ['date'=>'YYYY-MM-DD', 'cloud_cover'=>null] */
+    /** Returnerer array med ['date'=>'YYYY-MM-DD', 'cloud_cover'=>null, 'coverage'=>float 0.0-1.0] */
     public function searchDatesS1(string $from, string $to): array
     {
         $token = $this->getToken();
@@ -250,17 +250,72 @@ class SentinelFetcher
 
         $features = json_decode($body, true)['features'] ?? [];
 
-        // Dedup: én entry per dato, beholder første påtrufne
+        // Dedup: én entry per dato — flere scener (ulike baner/passeringer) kan
+        // dekke samme dato, og noen dekker bare DELER av AOI-et (resten blir
+        // transparent i det ferdige bildet). Behold scenen med mest AOI-dekning,
+        // ikke bare den første som dukker opp i søket.
         $byDate = [];
         foreach ($features as $f) {
             $date = substr($f['properties']['datetime'], 0, 10);
-            if (!isset($byDate[$date])) {
-                $byDate[$date] = ['date' => $date, 'cloud_cover' => null];
+            $coverage = $this->estimateAoiCoverage($f['geometry'] ?? null, $aoi);
+            if (!isset($byDate[$date]) || $coverage > $byDate[$date]['coverage']) {
+                $byDate[$date] = ['date' => $date, 'cloud_cover' => null, 'coverage' => $coverage, 'acquired_at' => $f['properties']['datetime']];
             }
         }
 
         krsort($byDate);
         return array_values($byDate);
+    }
+
+    /** Ray-casting point-in-polygon (én ring, [ [lon,lat], ... ]) */
+    private function pointInRing(float $lon, float $lat, array $ring): bool
+    {
+        $inside = false;
+        $n = count($ring);
+        for ($i = 0, $j = $n - 1; $i < $n; $j = $i++) {
+            $xi = $ring[$i][0]; $yi = $ring[$i][1];
+            $xj = $ring[$j][0]; $yj = $ring[$j][1];
+            $intersects = (($yi > $lat) !== ($yj > $lat)) &&
+                ($lon < ($xj - $xi) * ($lat - $yi) / ($yj - $yi) + $xi);
+            if ($intersects) $inside = !$inside;
+        }
+        return $inside;
+    }
+
+    /** true hvis (lon,lat) ligger i en GeoJSON Polygon/MultiPolygon sin ytre ring (hull ignoreres — relevant for satellitt-footprints uten hull) */
+    private function pointInGeometry(float $lon, float $lat, array $geometry): bool
+    {
+        $type = $geometry['type'] ?? '';
+        if ($type === 'Polygon') {
+            return $this->pointInRing($lon, $lat, $geometry['coordinates'][0] ?? []);
+        }
+        if ($type === 'MultiPolygon') {
+            foreach ($geometry['coordinates'] ?? [] as $poly) {
+                if ($this->pointInRing($lon, $lat, $poly[0] ?? [])) return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Estimerer hvor stor andel (0.0-1.0) av AOI-et en scenes footprint dekker,
+     * ved å punktteste et rutenett av samplepunkter over AOI-boksen mot scenens
+     * geometri — enklere og god nok tilnærming, uten behov for et fullt
+     * geometri-bibliotek (GEOS o.l. er ikke tilgjengelig i standard PHP).
+     */
+    private function estimateAoiCoverage(?array $geometry, array $aoi, int $gridSize = 5): float
+    {
+        if (!$geometry) return 0.0;
+        $hits = 0;
+        $total = $gridSize * $gridSize;
+        for ($iy = 0; $iy < $gridSize; $iy++) {
+            $lat = $aoi['south'] + ($aoi['north'] - $aoi['south']) * ($iy + 0.5) / $gridSize;
+            for ($ix = 0; $ix < $gridSize; $ix++) {
+                $lon = $aoi['west'] + ($aoi['east'] - $aoi['west']) * ($ix + 0.5) / $gridSize;
+                if ($this->pointInGeometry($lon, $lat, $geometry)) $hits++;
+            }
+        }
+        return $hits / $total;
     }
 
     // ── Sentinel-3 SLSTR L2 LST — OData Products-søk ─────────────────────────
@@ -481,7 +536,7 @@ JS;
         $this->usgsToken = null;
     }
 
-    /** Returnerer array med ['date'=>'YYYY-MM-DD', 'cloud_cover'=>float, 'entity_id'=>string] */
+    /** Returnerer array med ['date'=>'YYYY-MM-DD', 'cloud_cover'=>float, 'entity_id'=>string, 'acquired_at'=>ISO8601|null] */
     public function searchDatesLandsat(string $from, string $to): array
     {
         $aoi = $this->config['aoi'];
@@ -496,7 +551,10 @@ JS;
                 ],
                 'acquisitionFilter' => ['start' => $from, 'end' => $to],
             ],
-            'maxResults' => 100,
+            'maxResults'   => 100,
+            // 'full' trengs for å få med det egentlige opptakstidspunktet — uten
+            // dette gir temporalCoverage.startDate kun midnatt (ingen klokkeslett).
+            'metadataType' => 'full',
         ]);
 
         $scenes = $resp['data']['results'] ?? [];
@@ -508,10 +566,18 @@ JS;
             if ($date === '') continue;
             $cloud = (float)($s['cloudCover'] ?? 100);
             if (!isset($byDate[$date]) || $cloud < $byDate[$date]['cloud_cover']) {
+                $startTime = null;
+                foreach ($s['metadata'] ?? [] as $m) {
+                    if (($m['fieldName'] ?? '') === 'Start Time') {
+                        $startTime = str_replace(' ', 'T', $m['value']) . 'Z'; // Landsat-opptakstider er UTC
+                        break;
+                    }
+                }
                 $byDate[$date] = [
                     'date'        => $date,
                     'cloud_cover' => round($cloud, 1),
                     'entity_id'   => $s['entityId'],
+                    'acquired_at' => $startTime,
                 ];
             }
         }
@@ -782,6 +848,56 @@ JS;
         return imagecolorallocate($im, $r, $g, $b);
     }
 
+    /** Fontfil brukt for alle klokkeslett-/temperaturetiketter (ekte TTF, kreves av GD sin imagettftext()) */
+    private function labelFont(): string
+    {
+        return __DIR__ . '/assets/fonts/IBMPlexMono-Regular.ttf';
+    }
+
+    /**
+     * Tegner en klokkeslett-etikett (papirfarget halvtransparent boks + trykksverte-
+     * tekst, samme stil som temperaturtallenes bakgrunnsbokser) i nedre venstre
+     * hjørne av et allerede åpent GD-bilde.
+     */
+    private function drawTimeLabel($im, string $acquiredAt, int $fontSize = 12): void
+    {
+        $font  = $this->labelFont();
+        $label = date('H:i', strtotime($acquiredAt)) . ' UTC';
+        $box   = imagettfbbox($fontSize, 0, $font, $label);
+        $textW = $box[2] - $box[0];
+        $textH = $box[1] - $box[5];
+        $pad   = max(3, (int)round($fontSize * 0.4));
+
+        $h  = imagesy($im);
+        $tx = $pad + $pad;
+        $ty = $h - $pad - $pad;
+
+        $boxColor = imagecolorallocatealpha($im, 0xE7, 0xE3, 0xD6, 10);
+        imagefilledrectangle($im, $tx - $pad, $ty - $textH - $pad, $tx + $textW + $pad, $ty + $pad, $boxColor);
+        $inkColor = imagecolorallocate($im, 0x19, 0x1A, 0x1C);
+        imagettftext($im, $fontSize, 0, $tx, $ty, $inkColor, $font, $label);
+    }
+
+    /**
+     * Åpner ferdige PNG-bytes (fra Process API eller GDAL-pipelinen), stempler
+     * klokkeslett for satellittpasseringen i nedre venstre hjørne, returnerer nye
+     * PNG-bytes. Brukes for S2/S1/Landsat — S3 LST tegner sin egen etikett direkte
+     * via drawTimeLabel() siden det allerede bygger bildet fra bunnen av med GD.
+     */
+    private function stampAcquisitionTime(string $pngData, ?string $acquiredAt): string
+    {
+        if (!$acquiredAt) return $pngData;
+        $im = @imagecreatefromstring($pngData);
+        if (!$im) return $pngData;
+        imagesavealpha($im, true);
+        $this->drawTimeLabel($im, $acquiredAt);
+        ob_start();
+        imagepng($im);
+        $result = ob_get_clean();
+        imagedestroy($im);
+        return ($result !== false && $result !== '') ? $result : $pngData;
+    }
+
     /**
      * Henter Sentinel-3 SLSTR L2 LST for én dato: laster ned hele SL_2_LST-produktet
      * (CDSE sin nedlastingsserver støtter ikke range-requests — bekreftet i praksis,
@@ -892,7 +1008,7 @@ JS;
             $transparent = imagecolorallocatealpha($im, 0, 0, 0, 127);
             imagefill($im, 0, 0, $transparent);
 
-            $font = __DIR__ . '/assets/fonts/IBMPlexMono-Regular.ttf';
+            $font = $this->labelFont();
             $fontSize = $cfg['font_size_px'];
             $boxColor = imagecolorallocatealpha($im, 0xE7, 0xE3, 0xD6, 10); // papir, ~92% dekkende
 
@@ -943,22 +1059,7 @@ JS;
             // temperaturrutenettet er ferskt for et gitt tidspunkt på dagen, ikke
             // et døgngjennomsnitt, så dette er nødvendig kontekst.
             if ($acquiredAt) {
-                $timeLabel = date('H:i', strtotime($acquiredAt)) . ' UTC';
-                $timeFontSize = max(9, (int)round($fontSize * 0.75));
-                $timeBox = imagettfbbox($timeFontSize, 0, $font, $timeLabel);
-                $timeW = $timeBox[2] - $timeBox[0];
-                $timeH = $timeBox[1] - $timeBox[5];
-                $timePad = max(3, (int)round($timeFontSize * 0.4));
-                $ttx = $timePad + $timePad;
-                $tty = $h - $timePad - $timePad;
-                imagefilledrectangle(
-                    $im,
-                    $ttx - $timePad, $tty - $timeH - $timePad,
-                    $ttx + $timeW + $timePad, $tty + $timePad,
-                    $boxColor
-                );
-                $inkColor = imagecolorallocate($im, 0x19, 0x1A, 0x1C);
-                imagettftext($im, $timeFontSize, 0, $ttx, $tty, $inkColor, $font, $timeLabel);
+                $this->drawTimeLabel($im, $acquiredAt, max(9, (int)round($fontSize * 0.75)));
             }
 
             $pngPath = $scratchDir . 'final.png';
@@ -1168,6 +1269,7 @@ JS;
 
             try {
                 $imageData = $this->fetchImage($date);
+                $imageData = $this->stampAcquisitionTime($imageData, $entry['acquired_at'] ?? null);
                 file_put_contents($savePath, $imageData);
                 $kb = round(strlen($imageData) / 1024);
 
@@ -1186,6 +1288,7 @@ JS;
                     'cloud_cover' => $cloud,
                     'filename'    => $filename,
                     'thumbnail'   => $thumbOk ? $thumbFile : null,
+                    'acquired_at' => $entry['acquired_at'] ?? null,
                     'fetched_at'  => date('c'),
                 ];
 
@@ -1228,21 +1331,27 @@ JS;
 
             $this->log("S1 katalogsøk: " . count($s1Dates) . " dato(er) funnet");
 
-            // Skip-liste: S1-entries der filen faktisk finnes på disk
+            // Skip-liste: S1-entries der filen faktisk finnes på disk, med lagret
+            // AOI-dekningsgrad. Manglende 'coverage'-felt (hentet før denne sjekken
+            // fantes) behandles som 0 — så et bedre alternativ tas automatisk i
+            // bruk én gang, uten at det senere fører til unødvendige re-nedlastinger
+            // (samme scene gir samme dekningstall neste gang, aldri "bedre enn seg selv").
             $existingS1 = [];
             foreach ($metadata as $m) {
                 if (($m['sensor'] ?? '') === 'S1' && !empty($m['filename'])) {
                     if (file_exists($this->config['images_dir'] . $m['filename'])) {
-                        $existingS1[] = $m['date'];
+                        $existingS1[$m['date']] = (float)($m['coverage'] ?? 0.0);
                     }
                 }
             }
 
             foreach ($s1Dates as $entry) {
-                $date = $entry['date'];
-                if (in_array($date, $existingS1, true)) {
+                $date     = $entry['date'];
+                $coverage = $entry['coverage'];
+
+                if (isset($existingS1[$date]) && $coverage <= $existingS1[$date]) {
                     $stats['s1_skipped']++;
-                    $this->log("S1 SKIP  $date  (allerede lagret)");
+                    $this->log("S1 SKIP  $date  (allerede lagret, dekning " . round($existingS1[$date] * 100) . "%)");
                     continue;
                 }
 
@@ -1256,6 +1365,7 @@ JS;
 
                 try {
                     $imageData = $this->fetchImageS1($date);
+                    $imageData = $this->stampAcquisitionTime($imageData, $entry['acquired_at'] ?? null);
                     file_put_contents($savePath, $imageData);
                     $kb = round(strlen($imageData) / 1024);
 
@@ -1268,15 +1378,20 @@ JS;
                         'date'        => $date,
                         'sensor'      => 'S1',
                         'cloud_cover' => null,
+                        'coverage'    => $coverage,
                         'filename'    => $filename,
                         'thumbnail'   => $thumbOk ? $thumbFile : null,
                         'type'        => 'radar',
+                        'acquired_at' => $entry['acquired_at'] ?? null,
                         'fetched_at'  => date('c'),
                     ];
 
                     $stats['s1_downloaded']++;
+                    $upgrade = isset($existingS1[$date])
+                        ? " — oppgradert fra " . round($existingS1[$date] * 100) . "% dekning"
+                        : '';
                     $thumb = $thumbOk ? "thumbnail: $thumbFile" : 'thumbnail: FEIL';
-                    $this->log("S1 OK    $date  →  $filename  ({$kb} KB  $thumb)");
+                    $this->log("S1 OK    $date  →  $filename  ({$kb} KB  dekning: " . round($coverage * 100) . "%  $thumb)$upgrade");
                 } catch (RuntimeException $e) {
                     $stats['s1_errors'][] = "$date: " . $e->getMessage();
                     $this->log("S1 FEIL  $date  " . $e->getMessage());
@@ -1325,6 +1440,7 @@ JS;
 
                     try {
                         $imageData = $this->fetchImageLandsat($date, $entry['entity_id']);
+                        $imageData = $this->stampAcquisitionTime($imageData, $entry['acquired_at'] ?? null);
                         file_put_contents($savePath, $imageData);
                         $kb = round(strlen($imageData) / 1024);
 
@@ -1340,6 +1456,7 @@ JS;
                             'filename'    => $filename,
                             'thumbnail'   => $thumbOk ? $thumbFile : null,
                             'type'        => 'landsat',
+                            'acquired_at' => $entry['acquired_at'] ?? null,
                             'fetched_at'  => date('c'),
                         ];
 

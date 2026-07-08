@@ -1,5 +1,30 @@
 # Backlog
 
+## Klokkeslett for satellittpassering stemplet på alle bilder (implementert, verifisert)
+
+Alle bilder (S2, S1, Landsat — S3 LST hadde dette fra før) stemples nå med opptakstidspunktet (UTC) i nedre venstre hjørne, samme papirfarget-boks-stil som LST-tallene. Presisert med brukeren først: dette er passeringstidspunktet (når satellitten faktisk tok bildet), ikke `fetched_at` (når fetch.php lastet det ned — kan være timer/dager senere).
+
+**Implementert:**
+- Delt `stampAcquisitionTime()`/`drawTimeLabel()`/`labelFont()` i `fetch.php` — laster ferdige PNG-bytes (fra Process API eller GDAL) med `imagecreatefromstring()`, tegner etiketten, returnerer nye PNG-bytes. S3 LST sin eksisterende inline-kode refaktorert til å bruke samme `drawTimeLabel()` (bygger bildet fra bunnen av med GD, så trenger ikke omveien om PNG-bytes).
+- `searchDates()` (S2), `searchDatesS1()`, `searchDatesLandsat()` henter nå alle `acquired_at` (ISO8601) i tillegg til dato, lagres i metadata.
+- `_run()` stempler tiden på bildet rett før lagring, for alle tre pipelines.
+
+**Ikke-opplagt funn — Landsat mangler klokkeslett i standardsvaret:** USGS M2M sitt `scene-search` gir kun `temporalCoverage.startDate` = midnatt (`"2026-07-01 00:00:00"`) uten `metadataType: 'full'` i requesten. Med det flagget satt dukker et ekte `Start Time`-felt opp i scenens `metadata`-array (f.eks. `"2026-07-01 10:24:31"`), som konverteres til ISO8601 (`str_replace(' ', 'T', ...) . 'Z'` — Landsat-opptakstider er UTC).
+
+**Verifisert:** Kjørt mot ekte data for alle tre sensortyper (1.-8. juli 2026) — regenererte eksisterende bilder viser korrekt klokkeslett (f.eks. S2 `12:54 UTC`, S1 `07:30 UTC`, Landsat `12:24 UTC`), stilen matcher LST-overleggets tidsstempel.
+
+---
+
+## Sentinel-1: velg scene med best AOI-dekning i stedet for første treff (implementert, verifisert)
+
+`searchDatesS1()` valgte tidligere bare den FØRSTE S1-scenen som dukket opp i katalogsøket for en gitt dato — uten å sjekke om scenen faktisk dekket hele Vansjø-AOI-et. Siden SAR-scener (ulike baner/passeringer) ikke alltid har identisk footprint, kunne dette gi bilder med transparente hull der satellittsvaden bare delvis krysset AOI-et, selv om en annen scene samme dag hadde full dekning.
+
+**Løsning:** Ny `estimateAoiCoverage()`/`pointInGeometry()`/`pointInRing()` — punktteste et 5×5-rutenett over AOI-boksen mot hver scenes GeoJSON-footprint (ray-casting, ren PHP, ingen GEOS/geometri-bibliotek nødvendig). `searchDatesS1()` velger nå scenen med høyest dekning per dato i stedet for første treff. Dekningstallet (`coverage`, 0.0-1.0) lagres i metadata, og `_run()` sin S1-skip-logikk sammenligner mot lagret verdi — dukker en bedre-dekkende scene opp senere (eller for eldre entries som mangler feltet fra før), lastes den ned og erstatter den gamle automatisk.
+
+**Verifisert i praksis:** Kjørt mot ekte data (1.-8. juli 2026) — fant reelle dekningsforskjeller (64-100%, to datoer manglet faktisk full dekning uansett hvilken scene som ble valgt — det er en reell begrensning i tilgjengelig data, ikke en bug). Alle 4 eksisterende S1-bilder for perioden ble automatisk oppgradert ved første kjøring (manglet `coverage`-felt fra før), og en umiddelbar re-kjøring bekreftet idempotens (0 nedlastet, alle 4 hoppet over med korrekt lagret dekningsprosent — ingen unødvendig gjentatt nedlasting).
+
+---
+
 ## Sentinel-3 SLSTR LST-overlegg (implementert, verifisert, live i produksjon)
 
 Landoverflatetemperatur fra Sentinel-3 som et av/på-overlegg (rutenett med fargede temperaturtall) oppå S2-bildet, bak `s3_lst_enabled`-flagget. Ikke et eget Pro-panel som Landsat — brukerens eksplisitte ønske var et overlegg direkte på det optiske bildet, med tallverdier per rute (glissent nok til å være lesbare — se justeringer under) i stedet for et kontinuerlig fargekart.

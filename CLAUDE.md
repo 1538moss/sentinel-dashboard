@@ -106,6 +106,7 @@ OAuth2-klient opprettes på: https://shapps.dataspace.copernicus.eu/dashboard/#/
 1. `fetch.php` henter OAuth2-token fra CDSE
 2. Katalogsøk finner tilgjengelige datoer med lavest skydekke per dag
 3. Processing API returnerer rendret PNG
+3b. Klokkeslett for satellittpasseringen (ikke nedlastingstidspunktet — det er `fetched_at`) stemples i nedre venstre hjørne av alle bilder (S2/S1/Landsat/S3), via delt `stampAcquisitionTime()`/`drawTimeLabel()` i `fetch.php` (samme papirfarget-boks-stil som brukes for LST-tallene). Lagres også som `acquired_at` i metadata. For Landsat krever dette `metadataType: 'full'` i M2M-søket — standardsvaret har kun midnatt, ikke ekte klokkeslett.
 4. Bilde lagres i `images/YYYY-MM-DD.png`
 5. Thumbnail (136×136 JPEG) genereres i `images/thumbs/YYYY-MM-DD.jpg`
 6. Metadata oppdateres i `data/images.json`
@@ -113,6 +114,14 @@ OAuth2-klient opprettes på: https://shapps.dataspace.copernicus.eu/dashboard/#/
 8. Dager uten satellittdata får `type: "map"` i metadata
 9. Når `landsat_enabled` er `true`: samme flyt for Landsat 8-9 via USGS M2M (se eget avsnitt under), uavhengig av S2/S1 — en feilende M2M-kobling logges og hopper over Landsat for hele kjøringen, uten å påvirke S2/S1
 10. Når `s3_lst_enabled` er `true`: uavhengig pipeline for Sentinel-3 LST (se eget avsnitt under) — påvirker aldri S2/S1/Landsat om noe feiler
+
+---
+
+## Sentinel-1 (SAR-radar) — dekningsbasert scenevalg
+
+SAR-data har ingen skydekke-prosent å rangere etter, så dedup i `searchDatesS1()` fungerer annerledes enn S2/Landsat: når flere scener (ulike baner/passeringer) finnes for samme dato, estimeres hvor stor andel av AOI-et hver scene faktisk dekker (`estimateAoiCoverage()` — punktteste et 5×5-rutenett over AOI-boksen mot scenens GeoJSON-footprint med ray-casting, ingen ekstern geometri-bibliotek nødvendig), og scenen med høyest dekning velges. Noen dager har rett og slett ikke en scene med full dekning tilgjengelig — det er normalt.
+
+Dekningstallet lagres i metadata (`coverage`), så `_run()` sin skip-logikk sammenligner mot lagret verdi i stedet for bare å sjekke "finnes fil for denne datoen" — dukker det opp en scene med bedre dekning enn det som allerede er lagret (f.eks. en ny bane samme dag, eller retrospektivt for eldre entries som mangler `coverage`-feltet fra før denne funksjonen fantes), lastes den ned og erstatter den gamle. Idempotent: samme scene gir samme dekningstall neste kjøring, aldri "bedre enn seg selv".
 
 ---
 
