@@ -364,13 +364,18 @@ body.pro-mode{
 }
 .pro-panel{
   position:relative;flex:1 1 0;min-width:0;
+  display:flex;flex-direction:column;
+  overflow:hidden;
+  background-color:var(--paper);
+}
+.pro-panel-image{
+  flex:1 1 auto;min-height:0;
   display:flex;align-items:center;justify-content:center;
   overflow:hidden;
   background-image:url('mapbg.php?v=3');
   background-size:contain;
   background-position:center;
   background-repeat:no-repeat;
-  background-color:var(--paper);
 }
 /* Bilder i paneler: fjern original ramme-styling, la img fylle panelet */
 .pro-panel .img-frame{
@@ -388,14 +393,31 @@ body.pro-mode{
 .pro-panel .img-frame img.lake-overlay{
   width:100%;height:100%;
 }
+/* Bildetekst under panelet: etikett til venstre, kreditering (Landsat) til høyre */
+.pro-caption{
+  flex:0 0 auto;
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:5px 8px;
+  border-top:1px solid var(--hair);
+  background:var(--paper);
+  font-family:var(--font-mono);font-size:9px;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--ink);
+}
+.pro-caption-label{
+  border:1px solid var(--ink);padding:2px 7px;
+}
+.pro-caption-radar .pro-caption-label{border-color:var(--violet);color:var(--violet)}
+.pro-caption-landsat .pro-caption-label{border-color:var(--landsat);color:var(--landsat)}
+.pro-caption-credit{
+  font-size:8px;letter-spacing:.08em;text-transform:none;color:var(--muted);
+}
+/* Overlay-etiketter brukt når Landsat vises som fullskjerm-erstatning i Std-modus */
 .pro-label{
   position:absolute;top:8px;left:8px;z-index:4;
   font-family:var(--font-mono);font-size:9px;letter-spacing:.18em;text-transform:uppercase;
   color:var(--ink);background:rgba(231,227,214,.92);
   padding:3px 8px;border:1px solid var(--ink);pointer-events:none;
 }
-.pro-label-radar{border-color:var(--violet);color:var(--violet)}
-.pro-label-radar{top:auto;bottom:8px;}
 .pro-label-landsat{border-color:var(--landsat);color:var(--landsat);top:auto;bottom:8px;right:8px;left:auto}
 .usgs-credit{
   position:absolute;bottom:8px;left:8px;z-index:4;
@@ -710,13 +732,39 @@ function buildLandsatFrame(landsat, standalone = false) {
     label.className = 'pro-label pro-label-landsat';
     label.textContent = 'Landsat (erstatning)';
     frame.appendChild(label);
-  }
 
-  const credit = document.createElement('div');
-  credit.className = 'usgs-credit';
-  credit.textContent = 'Credit: U.S. Geological Survey';
-  frame.appendChild(credit);
+    const credit = document.createElement('div');
+    credit.className = 'usgs-credit';
+    credit.textContent = 'Credit: U.S. Geological Survey';
+    frame.appendChild(credit);
+  }
   return frame;
+}
+
+// Pro-panel: bilde øverst, bildetekst (etikett + ev. kreditering) i en rad under
+function buildProPanel(labelText, captionClass, frameEl, creditText) {
+  const panel = document.createElement('div');
+  panel.className = 'pro-panel';
+
+  const imgWrap = document.createElement('div');
+  imgWrap.className = 'pro-panel-image';
+  imgWrap.appendChild(frameEl);
+  panel.appendChild(imgWrap);
+
+  const caption = document.createElement('div');
+  caption.className = 'pro-caption' + (captionClass ? ' ' + captionClass : '');
+  const label = document.createElement('span');
+  label.className = 'pro-caption-label';
+  label.textContent = labelText;
+  caption.appendChild(label);
+  if (creditText) {
+    const credit = document.createElement('span');
+    credit.className = 'pro-caption-credit';
+    credit.textContent = creditText;
+    caption.appendChild(credit);
+  }
+  panel.appendChild(caption);
+  return panel;
 }
 
 function buildSlides() {
@@ -732,35 +780,20 @@ function buildSlides() {
       const split = document.createElement('div');
       split.className = 'pro-split';
 
-      const lp = document.createElement('div');
-      lp.className = 'pro-panel';
-      const llabel = document.createElement('div');
-      llabel.className = 'pro-label';
-      llabel.textContent = 'Optisk';
-      lp.appendChild(llabel);
-      lp.appendChild(buildImgFrame(img, i));
+      const lp = buildProPanel('Optisk', '', buildImgFrame(img, i));
 
-      const rp = document.createElement('div');
-      rp.className = 'pro-panel';
-      const rlabel = document.createElement('div');
-      rlabel.className = 'pro-label pro-label-radar';
-      rlabel.textContent = 'Radar';
-      rp.appendChild(rlabel);
       const s1 = s1ByDate[img.date];
-      rp.appendChild(s1?.filename ? buildS1Frame(s1) : buildNoDataFrame('Ingen radardata'));
+      const rp = buildProPanel('Radar', 'pro-caption-radar',
+        s1?.filename ? buildS1Frame(s1) : buildNoDataFrame('Ingen radardata'));
 
       split.appendChild(lp);
       split.appendChild(rp);
 
       if (LANDSAT_ENABLED) {
-        const lsp = document.createElement('div');
-        lsp.className = 'pro-panel';
-        const lslabel = document.createElement('div');
-        lslabel.className = 'pro-label pro-label-landsat';
-        lslabel.textContent = 'Landsat';
-        lsp.appendChild(lslabel);
         const landsat = landsatByDate[img.date];
-        lsp.appendChild(landsat?.filename ? buildLandsatFrame(landsat) : buildNoDataFrame('Ingen Landsat-data'));
+        const lsp = buildProPanel('Landsat', 'pro-caption-landsat',
+          landsat?.filename ? buildLandsatFrame(landsat) : buildNoDataFrame('Ingen Landsat-data'),
+          'Credit: U.S. Geological Survey');
         split.appendChild(lsp);
       }
 
