@@ -78,10 +78,10 @@ CDSE_PASSWORD=...      # Kontoen må ikke ha 2FA/TOTP slått på (kjøres uten t
 
 'gdal'            => [gdalwarp_cmd, gdal_translate_cmd, gdal_calc_cmd, gdalbuildvrt_cmd]  // delt mellom Landsat- og S3-pipelinen
 'usgs'            => [username, token, base_url, dataset]
-'landsat_enabled' => false             // slå på Landsat-henting i fetch.php (krever gdal-bin/python3-gdal på serveren)
+'landsat_enabled' => true              // slår på Landsat-henting i fetch.php (krever gdal-bin/python3-gdal på serveren) — live i produksjon
 
 'cdse_odata'      => [products_url, download_host, product_type, username, password]  // S3 LST-nedlasting (OData, IKKE Process API)
-'s3_lst_enabled'  => false             // slå på S3 LST-henting (krever gdal-bin med netCDF-driver — se eget avsnitt)
+'s3_lst_enabled'  => true              // slår på S3 LST-henting (krever gdal-bin med netCDF-driver — se eget avsnitt) — live i produksjon
 's3_lst'          => [grid_cell_km, temp_min_c, temp_max_c, font_size_px]
 ```
 
@@ -148,7 +148,7 @@ Lagres som `images/YYYY-MM-DD-landsat.png` + thumbnail, metadata med `sensor: "L
 
 ## Sentinel-3 SLSTR LST — bak `s3_lst_enabled`-flagget
 
-Av/på-overlegg (ikke et eget panel) — et rutenett med fargede temperaturtall oppå det optiske S2-bildet, uavhengig av Std/Pro-modus. Slått av som standard; brukeren styrer det selv med `🌡 LST`-knappen i headeren (tilstanden lagres ikke mellom sideinnlastinger).
+Av/på-overlegg (ikke et eget panel) — et rutenett med fargede temperaturtall oppå det optiske S2-bildet, uavhengig av Std/Pro-modus. Slått av som standard; brukeren styrer det selv med `🌡 °C`-knappen i headeren (tilstanden lagres ikke mellom sideinnlastinger).
 
 Sentinel-3 sitt ferdigprosesserte LST-produkt (`SL_2_LST___`) finnes **ikke** via Sentinel Hub Process API (kun rå L1B-stråling/lysstyrke-temperatur er tilgjengelig der) — det må søkes opp og lastes ned via CDSE sin generelle **OData Products-katalog** i stedet, og krever en **annen tokentype** enn Process API:
 
@@ -158,9 +158,9 @@ Sentinel-3 sitt ferdigprosesserte LST-produkt (`SL_2_LST___`) finnes **ikke** vi
 - **Reprojisering**: Sentinel-3 SLSTR er et **swath-produkt** (bredde-/lengdegrad ligger i en egen fil, `geodetic_in.nc`, ikke en enkel geotransform som Landsat). `buildGeolocGridTif()` bygger en VRT med `GEOLOCATION`-metadata-domene og kjører `gdalwarp -geoloc`. To fallgruver funnet i praksis:
   1. `latitude_in`/`longitude_in` er CF-pakket (`scale_factor=1e-6`) — GDALs GEOLOCATION-mekanisme leser råverdier UTEN å selv pakke ut scale/offset, så disse må først materialiseres til ekte gradverdier med `gdal_translate -unscale` — ellers feiler warpen fullstendig.
   2. PHP sin `escapeshellarg()` på Windows **fjerner** anførselstegn i stedet for å escape dem, som ødelegger `NETCDF:"fil":variabel`-syntaksen fullstendig. `netcdfArg()` bygger derfor argumentet manuelt på Windows (`PHP_OS_FAMILY === 'Windows'`).
-- **Rutenett i stedet for kontinuerlig varmekart**: warpes til et rutenett på ~`grid_cell_km` (matcher SLSTR sin naturlige ~1km oppløsning, ingen kunstig gruppering), eksporteres til XYZ-tekstformat og parses direkte i PHP (ingen ekstra PHP-extension). Skydekte ruter (`confidence_in`-flagget, bit 16384 = `summary_cloud`) hopper over uten å tegne noe. Gjenværende ruter tegnes med PHP GD (`imagettftext`, font `assets/fonts/IBMPlexMono-Regular.ttf`) som fargede tall (avrundet °C) på transparent bakgrunn — fargen interpolert langs samme blå→grønn→oker→rød-skala som appens CSS-paletter, mellom `temp_min_c`/`temp_max_c`.
+- **Rutenett i stedet for kontinuerlig varmekart**: warpes til et rutenett på `grid_cell_km` (standard 2.5km — glissent nok til at tallene er lesbare; SLSTR sin native oppløsning er ~1km, men det ga for tett/smått rutenett i praksis), eksporteres til XYZ-tekstformat og parses direkte i PHP (ingen ekstra PHP-extension). Skydekte ruter (`confidence_in`-flagget, bit 16384 = `summary_cloud`) hopper over uten å tegne noe. Gjenværende ruter tegnes med PHP GD (`imagettftext`, font `assets/fonts/IBMPlexMono-Regular.ttf`) som fargede tall (avrundet °C), hver med en liten papirfarget halvtransparent bakgrunnsboks (`imagefilledrectangle`, samme farge som `.no-data-label`/`.coord`-etikettene i frontend) — nødvendig for lesbarhet, siden ren farget tekst kan bli ulesbar mot en lignende bakgrunnsfarge i selve satellittbildet (f.eks. rødt tall på rød vegetasjon i false_color). Fargen interpolert langs samme blå→grønn→oker→rød-skala som appens CSS-paletter, mellom `temp_min_c`/`temp_max_c`. Klokkeslettet for målingen (UTC, fra `acquired_at`) stemples i nedre venstre hjørne, siden rutenettet er et øyeblikksbilde, ikke et døgngjennomsnitt.
 
-Lagres som `images/YYYY-MM-DD-s3lst.png` + thumbnail, metadata med `sensor: "S3"`, `type: "lst"`. Siden Sentinel-3 er del av Copernicus (samme som S2/S1), trengs ingen egen USGS-lignende kreditering.
+Lagres som `images/YYYY-MM-DD-s3lst.png` + thumbnail, metadata med `sensor: "S3"`, `type: "lst"`, `acquired_at`. Siden Sentinel-3 er del av Copernicus (samme som S2/S1), trengs ingen egen USGS-lignende kreditering. **Viktig presisering i `help.php`**: dette er bakke-/overflatetemperatur (Land Surface Temperature), ikke lufttemperatur i skygge slik f.eks. YR.no viser — kan avvike mye på solvarmede flater.
 
 ---
 
@@ -176,7 +176,7 @@ Lagres som `images/YYYY-MM-DD-s3lst.png` + thumbnail, metadata med `sensor: "S3"
 | Filter | `☁ <50%`-knapp skjuler skydekte dager og kart |
 | Neste bilde | Klart-badge vises i header når nytt bilde er tilgjengelig (ingen estimert-dato lenger) |
 | Landsat-fallback (Std) | I Std-modus (ikke Pro): mangler S2-bilde for en dato, men finnes Landsat-bilde for samme dato → vises Landsat-bildet i hovedvisningen i stedet for kart, merket «Landsat (erstatning)» + USGS-kreditering. Pro-modus er upåvirket (viser alltid egen Landsat-panel uavhengig av S2). |
-| LST-overlegg | `🌡 LST`-knapp (kun synlig når `s3_lst_enabled`) slår av/på et rutenett med fargede temperaturtall oppå S2-bildet — fungerer i både Std- og Pro-modus (Pro-modus sitt "Optisk"-panel), tilstanden nullstilles ved sideinnlasting |
+| LST-overlegg | `🌡 °C`-knapp (kun synlig når `s3_lst_enabled`) slår av/på et rutenett med fargede temperaturtall (papirfarget bakgrunnsboks per tall + klokkeslett for målingen) oppå S2-bildet — fungerer i både Std- og Pro-modus (Pro-modus sitt "Optisk"-panel), tilstanden nullstilles ved sideinnlasting |
 | Mobil | Forenklet header under 640px |
 
 ### Tastaturnavigasjon

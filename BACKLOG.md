@@ -1,16 +1,24 @@
 # Backlog
 
-## Sentinel-3 SLSTR LST-overlegg (implementert og verifisert lokalt — venter på visuell bekreftelse + prod-rollout)
+## Sentinel-3 SLSTR LST-overlegg (implementert, verifisert, live i produksjon)
 
-Landoverflatetemperatur fra Sentinel-3 som et av/på-overlegg (rutenett med fargede temperaturtall) oppå S2-bildet, bak `s3_lst_enabled`-flagget. Ikke et eget Pro-panel som Landsat — brukerens eksplisitte ønske var et overlegg direkte på det optiske bildet, med tallverdier per ~1km rute (matcher SLSTR sin naturlige oppløsning) i stedet for et kontinuerlig fargekart.
+Landoverflatetemperatur fra Sentinel-3 som et av/på-overlegg (rutenett med fargede temperaturtall) oppå S2-bildet, bak `s3_lst_enabled`-flagget. Ikke et eget Pro-panel som Landsat — brukerens eksplisitte ønske var et overlegg direkte på det optiske bildet, med tallverdier per rute (glissent nok til å være lesbare — se justeringer under) i stedet for et kontinuerlig fargekart.
 
-**Status:** All kode implementert og kjørt ende-til-ende mot ekte CDSE-data lokalt (2026-07-08). Gjenstår: visuell bekreftelse i nettleser (Std + Pro), deploy, og bruker må sette `CDSE_USERNAME`/`CDSE_PASSWORD` i produksjons-`.sentinel.env` samt bekrefte at produksjonsserverens GDAL har netCDF-driveren før `s3_lst_enabled` slås på.
+**Status:** Ferdig utrullet 2026-07-08. Kode implementert, kjørt ende-til-ende mot ekte CDSE-data lokalt, bruker har bekreftet visuelt i nettleser (Std + Pro), deployet til produksjon, `CDSE_USERNAME`/`CDSE_PASSWORD` lagt til i `/var/www/.sentinel.env`, netCDF-driver bekreftet på produksjonsserveren, og `s3_lst_enabled => true` kjører der nå.
+
+**Justeringer etter første visuelle test:**
+- Rutenettet var i utgangspunktet for tett (~1km/rute, matchet SLSTR sin native oppløsning) og tallene for små til å lese — økt til `grid_cell_km: 2.5` og `font_size_px: 16`.
+- Fargede tall direkte på det optiske bildet var ulesbare der fargen traff en lignende bakgrunnsfarge (f.eks. rødt tall på rød vegetasjon i false_color). Prøvde først en mørk halo/kontur rundt tallene (kartografi-triks), men brukeren ba om en bakgrunnsboks i stedet — endret til en papirfarget halvtransparent boks bak hvert tall (samme stil som `.no-data-label`/`.coord`-etikettene), som løste det helt.
+- Lagt til klokkeslett for målingen (UTC) i nedre venstre hjørne av kartet, siden rutenettet er et øyeblikksbilde og ikke et døgngjennomsnitt.
+- Knappeteksten endret to ganger etter tilbakemelding: `🌡 LST` → `🌡 TMP` → `🌡 °C` (endte opp med å matche stilen til `☁ <50%`-knappen: symbol + kort verdi, ikke et ord).
+- `help.php` fikk en presisering om at dette er bakke-/overflatetemperatur (Land Surface Temperature), ikke lufttemperatur i skygge slik f.eks. YR.no viser — kan avvike mye på solvarmede flater.
+- Et cache-relatert forvirringsmoment underveis: `.htaccess` sin `immutable`-cache (lagt til tidligere samme dag, se eget avsnitt lenger ned) gjorde at regenererte bilder med samme filnavn ikke ble hentet på nytt av nettleseren. Løst permanent med et `?t=<fetched_at>`-query-param i alle bilde-URL-er (`versioned()`-hjelpefunksjon i `index.php`), ikke bare en engangs hard-refresh.
 
 **Implementert:**
 1. `config.php`: GDAL-kommandoene hoistet ut av `usgs`-blokken til en ny delt `gdal`-blokk (brukes nå av både Landsat- og S3-pipelinen). Ny `cdse_odata`-blokk (products_url, download_host, product_type, username/password fra env). Ny `s3_lst_enabled`-flagg + `s3_lst`-blokk (grid_cell_km, temp_min_c, temp_max_c, font_size_px). `env.example` oppdatert med `CDSE_USERNAME`/`CDSE_PASSWORD`.
 2. `fetch.php`: `getODataToken()` (password-grant, cachet separat fra Process API-tokenet), `searchDatesS3()` (OData Products-søk, dedup med `_NT_` foretrukket over `_NR_`), `netcdfArg()` (plattform-trygg NETCDF-argument-bygging), `buildGeolocGridTif()` (GEOLOCATION-VRT + gdalwarp -geoloc), `lstColor()` (4-trinns fargeinterpolasjon), `fetchImageS3LST()` (full pipeline: nedlasting → unzip → unscale lat/lon → geoloc-warp → XYZ-eksport → PHP GD-rendring av tallrutenett), `rrmdir()` (rekursiv scratch-opprydding), gated blokk i `_run()`, `purgeStaleS3Scratch()`.
 3. `api.php`: `status`/`next` hopper over `S3` samme som `S1`/`LANDSAT`; `fetch` sin cache-invalidering sjekker `s3_downloaded`.
-4. `index.php`: `S3_LST_ENABLED`-konstant, `s3ByDate`-map, `.lst-overlay` (speiler `.lake-overlay`-mønsteret), `🌡 LST`-knapp (av/på, IKKE persistert i localStorage — nullstilles ved sideinnlasting, i motsetning til `proMode`), `toggleLstOverlay()`, `tl-badge-t` i tidslinjen (vises i BÅDE Std- og Pro-modus, i motsetning til O/R/L som er Pro-only), `--thermal`-aksentfarge (#C1440E).
+4. `index.php`: `S3_LST_ENABLED`-konstant, `s3ByDate`-map, `.lst-overlay` (speiler `.lake-overlay`-mønsteret), `🌡 °C`-knapp (av/på, IKKE persistert i localStorage — nullstilles ved sideinnlasting, i motsetning til `proMode`), `toggleLstOverlay()`, `tl-badge-t` i tidslinjen (vises i BÅDE Std- og Pro-modus, i motsetning til O/R/L som er Pro-only), `--thermal`-aksentfarge (#C1440E), `versioned()` cache-busting-hjelper for alle bilde-URL-er.
 5. `help.php`, `cleanup.php` (`-s3lst.png`/`.jpg`-targets), `CLAUDE.md` — alle oppdatert med eget avsnitt.
 6. Font: `assets/fonts/IBMPlexMono-Regular.ttf` lastet ned (ekte TrueType, ikke woff2) for GD sin `imagettftext()`.
 
@@ -32,9 +40,9 @@ Mindre triviell feil underveis: `unzip` krever at alle flagg (`-j` for flat utpa
 - `gdalinfo`-inspeksjon bekreftet eksakte variabelnavn (`LST_in.nc:LST`, `geodetic_in.nc:latitude_in/longitude_in`, `flags_in.nc:confidence_in` med `flag_meanings` inkl. `summary_cloud` = bit 16384).
 
 **Gjenstående steg:**
-1. Bruker bekrefter visuelt i nettleser (Std- og Pro-modus, av/på-knapp)
-2. Sett `s3_lst_enabled => true` i produksjons-config og `CDSE_USERNAME`/`CDSE_PASSWORD` i `/var/www/.sentinel.env` etter neste deploy
-3. Bekreft at produksjonsserverens GDAL har netCDF-driveren (`gdalinfo --formats | grep -i netcdf`) FØR flagget slås på — ikke garantert av `gdal-bin` alene
+1. ~~Bruker bekrefter visuelt i nettleser~~ — bekreftet, inkl. justeringene over
+2. ~~Sett `s3_lst_enabled => true` i produksjons-config og `CDSE_USERNAME`/`CDSE_PASSWORD` i `/var/www/.sentinel.env`~~ — gjort, kjører i produksjon
+3. ~~Bekreft at produksjonsserverens GDAL har netCDF-driveren~~ — bekreftet OK (`gdalinfo --formats | grep -i netcdf`)
 
 ---
 
@@ -68,4 +76,4 @@ Landsat 8-9 (USGS M2M API) som tredje bildekilde i PRO-modus, ved siden av S2 op
 1. ~~Bruker bekrefter visuelt i nettleser~~ — bekreftet 2026-07-06 (tredje panel, USGS-credit, L-badge, brent oransje "Landsat"-tag vises korrekt)
 2. ~~Slett testscript~~ — `_test_m2m.php`, `_test_gdal_pipeline.php`, `_test_landsat_e2e.php` fjernet
 3. ~~Installer gdal-bin/python3-gdal på produksjonsserveren~~ — `scripts/deploy.sh` sjekker og installerer nå automatisk ved hver deploy
-4. Sett `landsat_enabled => true` i produksjons-config (og `USGS_USERNAME`/`USGS_M2M_TOKEN` i `/var/www/.sentinel.env`) etter neste deploy
+4. ~~Sett `landsat_enabled => true` i produksjons-config~~ — gjort, kjører i produksjon
