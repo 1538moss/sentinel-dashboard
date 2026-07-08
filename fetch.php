@@ -17,6 +17,8 @@ class SentinelFetcher
     private int     $tokenExpiry = 0;
     private string  $logFile    = '';
     private ?string $usgsToken  = null;
+    private ?string $odataToken = null;
+    private int     $odataTokenExpiry = 0;
 
     public function __construct(array $config)
     {
@@ -103,6 +105,57 @@ class SentinelFetcher
         $this->token      = $data['access_token'];
         $this->tokenExpiry = time() + ($data['expires_in'] ?? 300) - 30;
         return $this->token;
+    }
+
+    // ── Auth (OData — nedlasting av S3-produkter) ────────────────────────────
+    // Egen tokentype: OData $value-nedlasting avviser client_credentials-tokenet
+    // over ("Token audience not allowed") og krever i stedet et ekte CDSE-konto-
+    // passord via grant_type=password mot den offentlige klienten cdse-public.
+    // Bekreftet i praksis — se BACKLOG.md.
+    private function getODataToken(): string
+    {
+        if ($this->odataToken && time() < $this->odataTokenExpiry) return $this->odataToken;
+
+        $user = $this->config['cdse_odata']['username'] ?? '';
+        $pass = $this->config['cdse_odata']['password'] ?? '';
+
+        if (empty($user) || empty($pass)) {
+            throw new RuntimeException(
+                "Mangler CDSE-kontopassord for S3-nedlasting.\n" .
+                "Lim inn CDSE_USERNAME og CDSE_PASSWORD i .sentinel.env (ett nivå opp fra webroot)."
+            );
+        }
+
+        $ch = curl_init($this->config['sh']['token_url']);
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => http_build_query([
+                'grant_type' => 'password',
+                'client_id'  => 'cdse-public',
+                'username'   => $user,
+                'password'   => $pass,
+            ]),
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPHEADER     => ['Content-Type: application/x-www-form-urlencoded'],
+            CURLOPT_TIMEOUT        => 15,
+        ]);
+
+        $body = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($code !== 200) {
+            throw new RuntimeException("CDSE OData-token-forespørsel feilet (HTTP $code): $body");
+        }
+
+        $data = json_decode($body, true);
+        if (empty($data['access_token'])) {
+            throw new RuntimeException("Ingen access_token i OData-token-svar: $body");
+        }
+
+        $this->odataToken       = $data['access_token'];
+        $this->odataTokenExpiry = time() + ($data['expires_in'] ?? 300) - 30;
+        return $this->odataToken;
     }
 
     // ── Catalog search ────────────────────────────────────────────────────────
@@ -205,6 +258,65 @@ class SentinelFetcher
                 $byDate[$date] = ['date' => $date, 'cloud_cover' => null];
             }
         }
+
+        krsort($byDate);
+        return array_values($byDate);
+    }
+
+    // ── Sentinel-3 SLSTR L2 LST — OData Products-søk ─────────────────────────
+    // IKKE samme katalog som S2/S1 (Process API-katalogen har ikke SL_2_LST-
+    // produktet) — søker CDSE sin generelle produktkatalog i stedet.
+    /** Returnerer array med ['date'=>'YYYY-MM-DD', 'cloud_cover'=>null, 'product_id'=>string, 'product_name'=>string, 'acquired_at'=>ISO8601] */
+    public function searchDatesS3(string $from, string $to): array
+    {
+        $token = $this->getToken();
+        $aoi   = $this->config['aoi'];
+        $odata = $this->config['cdse_odata'];
+
+        $w = $aoi['west']; $e = $aoi['east']; $s = $aoi['south']; $n = $aoi['north'];
+        $polygon = "POLYGON(($w $s,$e $s,$e $n,$w $n,$w $s))";
+        $filter = "Collection/Name eq 'SENTINEL-3' and " .
+            "Attributes/OData.CSC.StringAttribute/any(att:att/Name eq 'productType' and att/OData.CSC.StringAttribute/Value eq '{$odata['product_type']}') and " .
+            "OData.CSC.Intersects(area=geography'SRID=4326;{$polygon}') and " .
+            "ContentDate/Start gt {$from}T00:00:00.000Z and ContentDate/Start lt {$to}T23:59:59.000Z";
+        $url = $odata['products_url'] . '?$filter=' . urlencode($filter) .
+            '&$top=100&$orderby=' . urlencode('ContentDate/Start asc');
+
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPHEADER     => ["Authorization: Bearer $token"],
+            CURLOPT_TIMEOUT        => 30,
+        ]);
+        $body = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($code !== 200) {
+            throw new RuntimeException("S3 OData-søk feilet (HTTP $code): $body");
+        }
+
+        $products = json_decode($body, true)['value'] ?? [];
+
+        // Dedup: én entry per dato. Hvert overflygning finnes typisk i to varianter —
+        // _NR_ (Near Real Time, tilgjengelig raskt) og _NT_ (Non-Time-Critical,
+        // reprosessert med bedre kalibrering et par dager senere) — foretrekk _NT_.
+        $byDate = [];
+        foreach ($products as $p) {
+            $date = substr($p['ContentDate']['Start'], 0, 10);
+            $isNT = str_contains($p['Name'], '_NT_');
+            if (!isset($byDate[$date]) || ($isNT && !$byDate[$date]['is_nt'])) {
+                $byDate[$date] = [
+                    'date'         => $date,
+                    'cloud_cover'  => null,
+                    'product_id'   => $p['Id'],
+                    'product_name' => $p['Name'],
+                    'acquired_at'  => $p['ContentDate']['Start'],
+                    'is_nt'        => $isNT,
+                ];
+            }
+        }
+        foreach ($byDate as &$entry) unset($entry['is_nt']);
 
         krsort($byDate);
         return array_values($byDate);
@@ -529,10 +641,10 @@ JS;
                 $localFiles[$band] = $dest;
             }
 
-            $gdalwarp      = $this->config['usgs']['gdalwarp_cmd'];
-            $gdalTranslate = $this->config['usgs']['gdal_translate_cmd'];
-            $gdalCalc      = $this->config['usgs']['gdal_calc_cmd'];
-            $gdalBuildvrt  = $this->config['usgs']['gdalbuildvrt_cmd'];
+            $gdalwarp      = $this->config['gdal']['gdalwarp_cmd'];
+            $gdalTranslate = $this->config['gdal']['gdal_translate_cmd'];
+            $gdalCalc      = $this->config['gdal']['gdal_calc_cmd'];
+            $gdalBuildvrt  = $this->config['gdal']['gdalbuildvrt_cmd'];
             $bbox          = "{$aoi['west']} {$aoi['south']} {$aoi['east']} {$aoi['north']}";
 
             // 1. Reprojiser+beskjær reflektans-bånd til AOI (bilinear)
@@ -589,6 +701,293 @@ JS;
             }
             @rmdir($scratchDir);
         }
+    }
+
+    /**
+     * Bygger "NETCDF:"path":var"-argumentet trygt på tvers av plattform.
+     * PHP sin escapeshellarg() på Windows FJERNER anførselstegn inni strengen
+     * i stedet for å escape dem (kjent plattformbegrensning), som ødelegger
+     * GDALs NETCDF-undersett-syntaks fullstendig — bekreftet i praksis, se
+     * BACKLOG.md. $path/$variable er alltid internt genererte strenger
+     * (scratch-filnavn, faste variabelnavn), aldri brukerinput.
+     */
+    private function netcdfArg(string $path, string $variable): string
+    {
+        $spec = 'NETCDF:"' . $path . '":' . $variable;
+        if (PHP_OS_FAMILY === 'Windows') {
+            return '"' . str_replace('"', '\"', $spec) . '"';
+        }
+        return escapeshellarg($spec);
+    }
+
+    /**
+     * Bygger en GEOLOCATION-VRT for én NetCDF-variabel (LST eller confidence-flagg)
+     * og warper den til AOI-rutenettet. Sentinel-3 SLSTR er et swath-produkt —
+     * bredde/lengdegrad per piksel ligger i en egen fil (geodetic_in.nc), ikke i
+     * en enkel geotransform som Landsat — så vanlig gdalwarp uten -geoloc kan
+     * ikke brukes her.
+     */
+    private function buildGeolocGridTif(
+        string $ncPath, string $variable, string $lonUnscaled, string $latUnscaled,
+        string $bbox, int $cols, int $rows, string $scratchDir, string $label
+    ): string {
+        $gdalwarp      = $this->config['gdal']['gdalwarp_cmd'];
+        $gdalTranslate = $this->config['gdal']['gdal_translate_cmd'];
+
+        $baseVrt = $scratchDir . "{$label}_base.vrt";
+        $this->runGdal("$gdalTranslate -of VRT " . $this->netcdfArg($ncPath, $variable) . ' ' . escapeshellarg($baseVrt));
+
+        // gdal_translate -of VRT bygger ikke selv inn en GEOLOCATION-metadata-domene
+        // for kryss-fil-swath-data (lat/lon ligger i en ANNEN fil enn LST/flagg-
+        // verdiene) — vi injiserer den manuelt i VRT-XML-en.
+        $vrtXml = file_get_contents($baseVrt);
+        $geoloc = "  <Metadata domain=\"GEOLOCATION\">\n" .
+            '    <MDI key="X_DATASET">' . htmlspecialchars($lonUnscaled) . "</MDI>\n" .
+            "    <MDI key=\"X_BAND\">1</MDI>\n" .
+            '    <MDI key="Y_DATASET">' . htmlspecialchars($latUnscaled) . "</MDI>\n" .
+            "    <MDI key=\"Y_BAND\">1</MDI>\n" .
+            "    <MDI key=\"PIXEL_OFFSET\">0</MDI>\n" .
+            "    <MDI key=\"LINE_OFFSET\">0</MDI>\n" .
+            "    <MDI key=\"PIXEL_STEP\">1</MDI>\n" .
+            "    <MDI key=\"LINE_STEP\">1</MDI>\n" .
+            "  </Metadata>\n";
+        $vrtXml = preg_replace('/(<VRTDataset[^>]*>\n)/', '$1' . $geoloc, $vrtXml, 1);
+        $geolocVrt = $scratchDir . "{$label}_geoloc.vrt";
+        file_put_contents($geolocVrt, $vrtXml);
+
+        $outTif = $scratchDir . "{$label}_grid.tif";
+        // -r near (ikke bilinear): vi vil ha en faktisk representativ pikselverdi
+        // per rute, ikke en blanding av gyldig/ugyldig/sky-data over rutegrensen.
+        $this->runGdal("$gdalwarp -overwrite -geoloc -t_srs EPSG:4326 -te $bbox -ts $cols $rows -r near " . escapeshellarg($geolocVrt) . ' ' . escapeshellarg($outTif));
+        return $outTif;
+    }
+
+    /** Interpolerer en farge langs blå→grønn→oker→rød-skalaen (samme paletten som appens CSS-variabler) */
+    private function lstColor($im, float $celsius, float $min, float $max): int
+    {
+        $stops = [
+            [0x1A, 0x5F, 0x8F], // --blue
+            [0x25, 0x6B, 0x43], // --green
+            [0x8F, 0x64, 0x00], // --ochre
+            [0xA9, 0x32, 0x26], // --red
+        ];
+        $t = max(0.0, min(1.0, ($celsius - $min) / ($max - $min)));
+        $segments = count($stops) - 1;
+        $pos = $t * $segments;
+        $idx = (int)min(floor($pos), $segments - 1);
+        $frac = $pos - $idx;
+        $r = (int)round($stops[$idx][0] + ($stops[$idx + 1][0] - $stops[$idx][0]) * $frac);
+        $g = (int)round($stops[$idx][1] + ($stops[$idx + 1][1] - $stops[$idx][1]) * $frac);
+        $b = (int)round($stops[$idx][2] + ($stops[$idx + 1][2] - $stops[$idx][2]) * $frac);
+        return imagecolorallocate($im, $r, $g, $b);
+    }
+
+    /**
+     * Henter Sentinel-3 SLSTR L2 LST for én dato: laster ned hele SL_2_LST-produktet
+     * (CDSE sin nedlastingsserver støtter ikke range-requests — bekreftet i praksis,
+     * se BACKLOG.md — men produktet viste seg å være ~70MB, ikke 1.7-1.9GB som
+     * OData-katalogen antydet for gamle 2016-arkivprodukter, så full nedlasting er
+     * uproblematisk), ekstraherer kun de tre nødvendige NetCDF-filene, reprojiserer
+     * LST-swathen til AOI-rutenettet via GDAL GEOLOCATION-VRT, maskerer bort
+     * skydekte celler (confidence_in bit 16384 = summary_cloud), og tegner et
+     * rutenett med fargede temperaturtall (PHP GD) — IKKE et kontinuerlig
+     * varmekart. Returnerer PNG-bytes (samme kontrakt som fetchImageS1()).
+     */
+    public function fetchImageS3LST(string $date, string $productId, string $productName, ?string $acquiredAt = null): string
+    {
+        $aoi = $this->config['aoi'];
+        $w   = $this->config['image_width'];
+        $h   = $this->config['image_height'];
+        $cfg = $this->config['s3_lst'];
+
+        $scratchDir = $this->config['data_dir'] . 's3_tmp/' . $date . '_' . getmypid() . '/';
+        if (!is_dir($scratchDir)) mkdir($scratchDir, 0755, true);
+
+        try {
+            // 1. Full nedlasting
+            $token       = $this->getODataToken();
+            $zipPath     = $scratchDir . 'product.zip';
+            $downloadUrl = $this->config['cdse_odata']['download_host'] . "({$productId})/\$value";
+
+            $fp = fopen($zipPath, 'wb');
+            $ch = curl_init($downloadUrl);
+            curl_setopt_array($ch, [
+                CURLOPT_HTTPHEADER     => ["Authorization: Bearer $token"],
+                CURLOPT_FILE           => $fp,
+                CURLOPT_TIMEOUT        => 300,
+                CURLOPT_FOLLOWLOCATION => true,
+            ]);
+            curl_exec($ch);
+            $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $err  = curl_error($ch);
+            curl_close($ch);
+            fclose($fp);
+
+            if ($code !== 200 || $err || !is_file($zipPath) || filesize($zipPath) === 0) {
+                throw new RuntimeException("Nedlasting av S3-produkt $productName feilet (HTTP $code)" . ($err ? " — $err" : ''));
+            }
+
+            // 2. Ekstraher kun de tre nødvendige NetCDF-filene (flatt, -j) —
+            //    unzip i stedet for PHP ZipArchive, siden ext-zip ikke er en
+            //    garantert aktivert PHP-extension (samme filosofi som resten av
+            //    pipelinen: skall ut til eksterne CLI-verktøy, ikke PHP-extensions).
+            $wanted = ['LST_in.nc', 'geodetic_in.nc', 'flags_in.nc'];
+            $patterns = implode(' ', array_map(fn($n) => escapeshellarg("*/$n"), $wanted));
+            $this->runGdal('unzip -o -j ' . escapeshellarg($zipPath) . ' ' . $patterns . ' -d ' . escapeshellarg(rtrim($scratchDir, '/')));
+            unlink($zipPath); // ikke behov for zip-en lenger, og den er ~70MB
+
+            foreach ($wanted as $name) {
+                if (!is_file($scratchDir . $name)) {
+                    throw new RuntimeException("Fant ikke $name etter utpakking av $productName");
+                }
+            }
+            $lstNc   = $scratchDir . 'LST_in.nc';
+            $geoNc   = $scratchDir . 'geodetic_in.nc';
+            $flagsNc = $scratchDir . 'flags_in.nc';
+
+            $gdalTranslate = $this->config['gdal']['gdal_translate_cmd'];
+            $bbox = "{$aoi['west']} {$aoi['south']} {$aoi['east']} {$aoi['north']}";
+
+            // 3. latitude_in/longitude_in er CF-pakket (scale_factor=1e-6) — GDALs
+            //    GEOLOCATION-mekanisme leser RÅ pikselverdier uten selv å pakke ut
+            //    scale_factor/add_offset, så vi må materialisere ekte gradverdier
+            //    først. Uten dette steget feiler gdalwarp -geoloc fullstendig
+            //    ("unable to compute output bounds") — bekreftet i praksis.
+            $lonUnscaled = $scratchDir . 'lon_unscaled.tif';
+            $latUnscaled = $scratchDir . 'lat_unscaled.tif';
+            $this->runGdal("$gdalTranslate -unscale -ot Float64 " . $this->netcdfArg($geoNc, 'longitude_in') . ' ' . escapeshellarg($lonUnscaled));
+            $this->runGdal("$gdalTranslate -unscale -ot Float64 " . $this->netcdfArg($geoNc, 'latitude_in') . ' ' . escapeshellarg($latUnscaled));
+
+            // 4. Rutenett-dimensjoner: ~grid_cell_km per rute, basert på AOI-utstrekning
+            //    (matcher SLSTR sin naturlige ~1km oppløsning — ingen kunstig gruppering)
+            $centerLat   = ($aoi['north'] + $aoi['south']) / 2;
+            $kmPerDegLat = 111.32;
+            $kmPerDegLon = 111.32 * cos(deg2rad($centerLat));
+            $cols = max(1, (int)round((($aoi['east'] - $aoi['west']) * $kmPerDegLon) / $cfg['grid_cell_km']));
+            $rows = max(1, (int)round((($aoi['north'] - $aoi['south']) * $kmPerDegLat) / $cfg['grid_cell_km']));
+
+            // 5. Warp LST og skyflagg til samme rutenett over AOI
+            $lstGrid   = $this->buildGeolocGridTif($lstNc, 'LST', $lonUnscaled, $latUnscaled, $bbox, $cols, $rows, $scratchDir, 'lst');
+            $flagsGrid = $this->buildGeolocGridTif($flagsNc, 'confidence_in', $lonUnscaled, $latUnscaled, $bbox, $cols, $rows, $scratchDir, 'flags');
+
+            // 6. Eksporter til XYZ ("lon lat verdi" per rad, enkelt å parse i PHP —
+            //    ingen ekstra PHP-extension nødvendig for å lese rasterverdier)
+            $lstXyz   = $scratchDir . 'lst.xyz';
+            $flagsXyz = $scratchDir . 'flags.xyz';
+            $this->runGdal("$gdalTranslate -of XYZ " . escapeshellarg($lstGrid) . ' ' . escapeshellarg($lstXyz));
+            $this->runGdal("$gdalTranslate -of XYZ " . escapeshellarg($flagsGrid) . ' ' . escapeshellarg($flagsXyz));
+
+            $lstRows   = file($lstXyz);
+            $flagsRows = file($flagsXyz);
+            if (!$lstRows || !$flagsRows || count($lstRows) !== count($flagsRows)) {
+                throw new RuntimeException("LST- og skyflagg-rutenett har ulikt antall celler for $productName");
+            }
+
+            // 7. Tegn rutenett med fargede temperaturtall på transparent PNG, hver
+            //    med en liten papirfarget bakgrunnsboks (samme halvtransparente
+            //    papirfarge som app-ens .no-data-label/.coord-etiketter) — uten
+            //    dette blir f.eks. rødt tall på rød vegetasjon (false_color) ulesbart.
+            $im = imagecreatetruecolor($w, $h);
+            imagesavealpha($im, true);
+            $transparent = imagecolorallocatealpha($im, 0, 0, 0, 127);
+            imagefill($im, 0, 0, $transparent);
+
+            $font = __DIR__ . '/assets/fonts/IBMPlexMono-Regular.ttf';
+            $fontSize = $cfg['font_size_px'];
+            $boxColor = imagecolorallocatealpha($im, 0xE7, 0xE3, 0xD6, 10); // papir, ~92% dekkende
+
+            $drawn = 0;
+            for ($i = 0; $i < count($lstRows); $i++) {
+                $lstParts = preg_split('/\s+/', trim($lstRows[$i]));
+                $flagParts = preg_split('/\s+/', trim($flagsRows[$i]));
+                if (count($lstParts) < 3 || count($flagParts) < 3) continue;
+
+                $lon    = (float)$lstParts[0];
+                $lat    = (float)$lstParts[1];
+                $lstRaw = (float)$lstParts[2];
+                $flagRaw = (int)(float)$flagParts[2];
+
+                if ($lstRaw == -32768) continue;      // NODATA (utenfor swath/AOI-kant)
+                if (($flagRaw & 16384) !== 0) continue; // summary_cloud-bit satt
+
+                $celsius = (290 + $lstRaw * 0.0020000001) - 273.15;
+
+                $px = ($lon - $aoi['west'])  / ($aoi['east']  - $aoi['west'])  * $w;
+                $py = ($aoi['north'] - $lat) / ($aoi['north'] - $aoi['south']) * $h;
+
+                $color = $this->lstColor($im, $celsius, (float)$cfg['temp_min_c'], (float)$cfg['temp_max_c']);
+                $label = (string)(int)round($celsius);
+                $box   = imagettfbbox($fontSize, 0, $font, $label);
+                $textW = $box[2] - $box[0];
+                $textH = $box[1] - $box[5];
+                $tx = (int)round($px - $textW / 2);
+                $ty = (int)round($py + $textH / 2);
+
+                $pad = max(2, (int)round($fontSize * 0.3));
+                imagefilledrectangle(
+                    $im,
+                    $tx - $pad, $ty - $textH - $pad,
+                    $tx + $textW + $pad, $ty + $pad,
+                    $boxColor
+                );
+                imagettftext($im, $fontSize, 0, $tx, $ty, $color, $font, $label);
+                $drawn++;
+            }
+
+            if ($drawn === 0) {
+                imagedestroy($im);
+                throw new RuntimeException("Ingen sky-frie LST-celler for $productName (hele scenen skydekket over AOI)");
+            }
+
+            // Klokkeslett for selve målingen (satellittpasseringen) i hjørnet —
+            // temperaturrutenettet er ferskt for et gitt tidspunkt på dagen, ikke
+            // et døgngjennomsnitt, så dette er nødvendig kontekst.
+            if ($acquiredAt) {
+                $timeLabel = date('H:i', strtotime($acquiredAt)) . ' UTC';
+                $timeFontSize = max(9, (int)round($fontSize * 0.75));
+                $timeBox = imagettfbbox($timeFontSize, 0, $font, $timeLabel);
+                $timeW = $timeBox[2] - $timeBox[0];
+                $timeH = $timeBox[1] - $timeBox[5];
+                $timePad = max(3, (int)round($timeFontSize * 0.4));
+                $ttx = $timePad + $timePad;
+                $tty = $h - $timePad - $timePad;
+                imagefilledrectangle(
+                    $im,
+                    $ttx - $timePad, $tty - $timeH - $timePad,
+                    $ttx + $timeW + $timePad, $tty + $timePad,
+                    $boxColor
+                );
+                $inkColor = imagecolorallocate($im, 0x19, 0x1A, 0x1C);
+                imagettftext($im, $timeFontSize, 0, $ttx, $tty, $inkColor, $font, $timeLabel);
+            }
+
+            $pngPath = $scratchDir . 'final.png';
+            imagepng($im, $pngPath);
+            imagedestroy($im);
+
+            $imageData = file_get_contents($pngPath);
+            if ($imageData === false || $imageData === '') {
+                throw new RuntimeException("Kunne ikke lese ferdig S3 LST-PNG (tom eller manglende fil): $pngPath");
+            }
+            return $imageData;
+        } finally {
+            // Rekursiv opprydding: en delvis/feilet zip-utpakking kan i sjeldne
+            // tilfeller etterlate en undermappe (f.eks. hvis -j-flagget av en
+            // eller annen grunn ikke ble respektert), i motsetning til Landsat-
+            // pipelinen som alltid kun har flate filer i scratch-mappen.
+            $this->rrmdir($scratchDir);
+        }
+    }
+
+    /** Sletter en mappe rekursivt (filer + undermapper), stille ved feil */
+    private function rrmdir(string $dir): void
+    {
+        if (!is_dir($dir)) return;
+        foreach (glob($dir . '*') as $f) {
+            if (is_dir($f)) $this->rrmdir($f . '/');
+            else @unlink($f);
+        }
+        @rmdir(rtrim($dir, '/'));
     }
 
     // ── Process API — hent rendret bilde ─────────────────────────────────────
@@ -734,6 +1133,7 @@ JS;
             'searched'      => 0, 'downloaded' => 0, 'skipped' => 0, 'errors' => [],
             's1_downloaded' => 0, 's1_skipped' => 0, 's1_errors' => [],
             'landsat_downloaded' => 0, 'landsat_skipped' => 0, 'landsat_errors' => [],
+            's3_downloaded' => 0, 's3_skipped' => 0, 's3_errors' => [],
         ];
 
         $dates = $this->searchDates($startDate, $endDate);
@@ -746,7 +1146,7 @@ JS;
         // Skip-liste: kun ekte S2-bilder (ikke kart-placeholders, ikke S1/Landsat)
         $existingS2Dates = [];
         foreach ($metadata as $m) {
-            if (($m['type'] ?? '') !== 'map' && !in_array($m['sensor'] ?? '', ['S1', 'LANDSAT'], true) && !empty($m['filename'])) {
+            if (($m['type'] ?? '') !== 'map' && !in_array($m['sensor'] ?? '', ['S1', 'LANDSAT', 'S3'], true) && !empty($m['filename'])) {
                 if (file_exists($this->config['images_dir'] . $m['filename'])) {
                     $existingS2Dates[] = $m['date'];
                 }
@@ -959,6 +1359,74 @@ JS;
             }
         }
 
+        // ── S3 SLSTR L2 LST (kun når s3_lst_enabled === true) ────────────────
+        // Uavhengig pipeline på samme måte som Landsat — egen feilhåndtering,
+        // påvirker aldri S2/S1/Landsat om noe her feiler.
+        if (($this->config['s3_lst_enabled'] ?? false) === true) {
+            try {
+                $s3Dates = $this->searchDatesS3($startDate, $endDate);
+                $this->log("S3 katalogsøk: " . count($s3Dates) . " dato(er) funnet");
+
+                $existingS3 = [];
+                foreach ($metadata as $m) {
+                    if (($m['sensor'] ?? '') === 'S3' && !empty($m['filename'])) {
+                        if (file_exists($this->config['images_dir'] . $m['filename'])) {
+                            $existingS3[] = $m['date'];
+                        }
+                    }
+                }
+
+                foreach ($s3Dates as $entry) {
+                    $date = $entry['date'];
+                    if (in_array($date, $existingS3, true)) {
+                        $stats['s3_skipped']++;
+                        $this->log("S3 SKIP  $date  (allerede lagret)");
+                        continue;
+                    }
+
+                    // Fjern eventuell foreldret S3-metadata uten fil på disk
+                    $metadata = array_values(array_filter($metadata,
+                        fn($m) => !(($m['sensor'] ?? '') === 'S3' && $m['date'] === $date)
+                    ));
+
+                    $filename = $date . '-s3lst.png';
+                    $savePath = $this->config['images_dir'] . $filename;
+
+                    try {
+                        $imageData = $this->fetchImageS3LST($date, $entry['product_id'], $entry['product_name'], $entry['acquired_at'] ?? null);
+                        file_put_contents($savePath, $imageData);
+                        $kb = round(strlen($imageData) / 1024);
+
+                        $thumbFile = $date . '-s3lst.jpg';
+                        $thumbPath = $this->config['thumbs_dir'] . $thumbFile;
+                        $thumbOk   = $this->generateThumb($savePath, $thumbPath);
+
+                        $metadata[] = [
+                            'id'          => 's3_' . $date,
+                            'date'        => $date,
+                            'sensor'      => 'S3',
+                            'cloud_cover' => null,
+                            'filename'    => $filename,
+                            'thumbnail'   => $thumbOk ? $thumbFile : null,
+                            'type'        => 'lst',
+                            'acquired_at' => $entry['acquired_at'] ?? null,
+                            'fetched_at'  => date('c'),
+                        ];
+
+                        $stats['s3_downloaded']++;
+                        $thumb = $thumbOk ? "thumbnail: $thumbFile" : 'thumbnail: FEIL';
+                        $this->log("S3 OK    $date  →  $filename  ({$kb} KB  $thumb)");
+                    } catch (RuntimeException $e) {
+                        $stats['s3_errors'][] = "$date: " . $e->getMessage();
+                        $this->log("S3 FEIL  $date  " . $e->getMessage());
+                    }
+                }
+            } catch (RuntimeException $e) {
+                $stats['s3_errors'][] = $e->getMessage();
+                $this->log("S3 FEIL  " . $e->getMessage());
+            }
+        }
+
         usort($metadata, fn($a, $b) => strcmp($b['date'], $a['date']));
         $this->saveMetadata($metadata);
 
@@ -967,7 +1435,8 @@ JS;
         $s2sum = "S2: {$stats['downloaded']} nedlastet / {$stats['skipped']} hoppet over / " . count($stats['errors']) . " feil";
         $s1sum = "S1: {$stats['s1_downloaded']} nedlastet / {$stats['s1_skipped']} hoppet over / " . count($stats['s1_errors']) . " feil";
         $lsum  = "Landsat: {$stats['landsat_downloaded']} nedlastet / {$stats['landsat_skipped']} hoppet over / " . count($stats['landsat_errors']) . " feil";
-        $this->log("=== Ferdig — $s2sum | $s1sum | $lsum | {$stats['deleted']} slettet ===");
+        $s3sum = "S3: {$stats['s3_downloaded']} nedlastet / {$stats['s3_skipped']} hoppet over / " . count($stats['s3_errors']) . " feil";
+        $this->log("=== Ferdig — $s2sum | $s1sum | $lsum | $s3sum | {$stats['deleted']} slettet ===");
 
         return $stats;
     }
@@ -998,6 +1467,7 @@ JS;
                 $sensor = match ($m['sensor'] ?? '') {
                     'S1'      => ' S1',
                     'LANDSAT' => ' LANDSAT',
+                    'S3'      => ' S3',
                     default   => ' S2',
                 };
                 $file   = $m['filename'];
@@ -1012,6 +1482,7 @@ JS;
         }
 
         $this->purgeStaleLandsatScratch();
+        $this->purgeStaleS3Scratch();
 
         return $deleted;
     }
@@ -1028,6 +1499,19 @@ JS;
             if (filemtime($dir) >= $cutoff) continue;
             foreach (glob($dir . '/*') ?: [] as $f) unlink($f);
             @rmdir($dir);
+        }
+    }
+
+    // ── Rydd opp s3_tmp/-mapper som ble liggende igjen etter en avbrutt kjøring ──
+    private function purgeStaleS3Scratch(): void
+    {
+        $base = $this->config['data_dir'] . 's3_tmp/';
+        if (!is_dir($base)) return;
+
+        $cutoff = time() - 6 * 3600;
+        foreach (glob($base . '*', GLOB_ONLYDIR) ?: [] as $dir) {
+            if (filemtime($dir) >= $cutoff) continue;
+            $this->rrmdir($dir . '/');
         }
     }
 }

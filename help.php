@@ -22,6 +22,7 @@
   --red:#A93226;
   --violet:#5F4494;     /* radar/PRO */
   --landsat:#B5651D;    /* Landsat/USGS — brent oransje */
+  --thermal:#C1440E;    /* LST-temperaturoverlegg (Sentinel-3) */
   --font-mono:'IBM Plex Mono','Cascadia Code',Consolas,monospace;
   --font-display:'Big Shoulders Display','Arial Narrow',Impact,sans-serif;
   --font-ui:system-ui,-apple-system,sans-serif;
@@ -156,7 +157,8 @@ kbd{
         I pro-modus vises små bokstaver øverst til høyre på miniatyrbildene:
         <span style="background:var(--ink);color:var(--paper);font-family:var(--font-mono);font-size:9px;font-weight:600;padding:1px 4px">O</span> = optisk bilde (Sentinel-2) &nbsp;
         <span style="background:var(--violet);color:var(--paper);font-family:var(--font-mono);font-size:9px;font-weight:600;padding:1px 4px">R</span> = radarbilde (Sentinel-1) &nbsp;
-        <span style="background:var(--landsat);color:var(--paper);font-family:var(--font-mono);font-size:9px;font-weight:600;padding:1px 4px">L</span> = Landsat 8-9
+        <span style="background:var(--landsat);color:var(--paper);font-family:var(--font-mono);font-size:9px;font-weight:600;padding:1px 4px">L</span> = Landsat 8-9 &nbsp;
+        <span style="background:var(--thermal);color:var(--paper);font-family:var(--font-mono);font-size:9px;font-weight:600;padding:1px 4px">T</span> = landoverflatetemperatur (Sentinel-3)
       </div>
     </div>
   </section>
@@ -267,6 +269,23 @@ kbd{
         Lavere oppløsning og sjeldnere passeringer, men en uavhengig andreopinion på samme dato.
       </div>
     </div>
+    <div class="row">
+      <div class="key">🌡 °C-overlegg</div>
+      <div class="desc">
+        Landoverflatetemperatur fra Sentinel-3, slått av som standard — klikk <kbd>🌡 °C</kbd>-knappen
+        i headeren for å legge et rutenett med temperaturtall (°C) oppå det optiske bildet.
+        Klokkeslettet for målingen (UTC) vises i nedre venstre hjørne. Tallene fargelegges fra
+        <strong style="color:var(--blue)">blått</strong> (kaldt) til <strong style="color:var(--red)">rødt</strong> (varmt).
+        Skydekte ruter viser ikke tall — det er normalt, ikke en feil.
+        Fungerer i både Std- og Pro-modus, og huskes ikke mellom sideinnlastinger.
+      </div>
+    </div>
+    <div class="note">
+      <strong>Merk:</strong> Dette er <strong>bakkens/overflatens</strong> egen temperatur (Land Surface
+      Temperature), ikke lufttemperaturen i skygge 2 meter over bakken som f.eks. YR.no viser.
+      En solvarmet asfaltflate eller åker kan derfor vise en helt annen — ofte mye høyere — temperatur
+      enn det som meldes som «dagens temperatur».
+    </div>
   </section>
 
   <section>
@@ -291,6 +310,14 @@ kbd{
       <div class="desc">
         Optisk kamera drevet av USGS/NASA. Passerer over Norge omtrent <strong>hvert 16. dag</strong> per satellitt,
         så panelet viser «Ingen Landsat-data» de fleste dager — det er forventet, ikke en feil.
+      </div>
+    </div>
+    <div class="row">
+      <div class="key">Sentinel-3</div>
+      <div class="desc">
+        SLSTR-instrumentet måler landoverflatetemperatur (LST). To satellitter (S3A/S3B) gir flere
+        passeringer i døgnet over Norge, men skydekke maskerer bort ruter der temperaturen
+        ikke kan avleses pålitelig — akkurat som med optiske bilder.
       </div>
     </div>
     <div class="row">

@@ -31,6 +31,7 @@
   --red:#A93226;
   --violet:#5F4494;     /* radar/PRO */
   --landsat:#B5651D;    /* Landsat/USGS — brent oransje */
+  --thermal:#C1440E;    /* LST-temperaturoverlegg (Sentinel-3) */
   --accent:var(--blue);
   --font-mono:'IBM Plex Mono','Cascadia Code',Consolas,monospace;
   --font-display:'Big Shoulders Display','Arial Narrow',Impact,sans-serif;
@@ -62,15 +63,16 @@ html,body{height:100%;overflow:hidden;background:var(--paper);color:var(--ink)}
   font-family:var(--font-mono);font-size:11px;color:var(--muted);
 }
 #counter{color:var(--ink);letter-spacing:.08em}
-.fetch-btn,.filter-btn{
+.fetch-btn,.filter-btn,.lst-btn{
   background:transparent;border:1px solid var(--ink);color:var(--ink);
   padding:6px 12px;font-size:10px;letter-spacing:.18em;text-transform:uppercase;
   font-family:var(--font-mono);cursor:pointer;
   transition:background .15s,color .15s,border-color .15s;
 }
-.fetch-btn:hover,.filter-btn:hover{background:var(--ink);color:var(--paper)}
+.fetch-btn:hover,.filter-btn:hover,.lst-btn:hover{background:var(--ink);color:var(--paper)}
 .fetch-btn:disabled{opacity:.4;cursor:not-allowed;background:transparent;color:var(--ink)}
 .filter-btn.active{background:var(--accent);border-color:var(--accent);color:var(--paper)}
+.lst-btn.active{background:var(--thermal);border-color:var(--thermal);color:var(--paper)}
 .help-btn{
   background:transparent;border:1px solid var(--ink);color:var(--ink);
   width:29px;height:29px;display:flex;align-items:center;justify-content:center;
@@ -78,7 +80,7 @@ html,body{height:100%;overflow:hidden;background:var(--paper);color:var(--ink)}
   transition:background .15s,color .15s;
 }
 .help-btn:hover{background:var(--ink);color:var(--paper)}
-.fetch-btn:focus-visible,.filter-btn:focus-visible,.pro-btn:focus-visible,
+.fetch-btn:focus-visible,.filter-btn:focus-visible,.pro-btn:focus-visible,.lst-btn:focus-visible,
 .help-btn:focus-visible,.nav:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .next-badge{
   font-family:var(--font-mono);font-size:10px;letter-spacing:.06em;
@@ -126,7 +128,7 @@ html,body{height:100%;overflow:hidden;background:var(--paper);color:var(--ink)}
 }
 .img-frame.zoomed{overflow:hidden}
 .img-frame.zoomed img{cursor:grab;user-select:none}
-.img-frame.zoomed .lake-overlay{display:none}
+.img-frame.zoomed .lake-overlay,.img-frame.zoomed .lst-overlay{display:none}
 .lake-overlay{
   position:absolute;inset:0;
   width:100%;height:100%;
@@ -135,6 +137,17 @@ html,body{height:100%;overflow:hidden;background:var(--paper);color:var(--ink)}
   z-index:3;
   transition:opacity .2s;
 }
+/* LST-temperaturoverlegg (Sentinel-3) — av/på via lst-btn, ikke knyttet til skydekke */
+.lst-overlay{
+  position:absolute;inset:0;
+  width:100%;height:100%;
+  object-fit:contain;
+  pointer-events:none;
+  z-index:4;
+  opacity:0;
+  transition:opacity .3s;
+}
+body.lst-on .lst-overlay{opacity:1}
 .img-frame.zoomed img.panning{cursor:grabbing}
 
 /* Kart-only slide (ingen satellittdata) */
@@ -144,6 +157,7 @@ html,body{height:100%;overflow:hidden;background:var(--paper);color:var(--ink)}
 }
 .no-data-label{
   position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  z-index:5;
   font-family:var(--font-mono);font-size:11px;letter-spacing:.18em;
   text-transform:uppercase;color:var(--ink);
   background:rgba(231,227,214,.92);padding:8px 16px;
@@ -296,6 +310,7 @@ html,body{height:100%;overflow:hidden;background:var(--paper);color:var(--ink)}
 .tl-badge-o{background:var(--ink);color:var(--paper)}
 .tl-badge-r{background:var(--violet);color:var(--paper)}
 .tl-badge-l{background:var(--landsat);color:var(--paper)}
+.tl-badge-t{background:var(--thermal);color:var(--paper)}
 
 /* ── MOBILE ── */
 @media(max-width:640px){
@@ -307,7 +322,7 @@ html,body{height:100%;overflow:hidden;background:var(--paper);color:var(--ink)}
   .next-badge{display:none}
   #counter{display:none}
   .hdr-right{gap:8px}
-  .fetch-btn,.filter-btn{padding:5px 8px;font-size:9px;letter-spacing:.1em}
+  .fetch-btn,.filter-btn,.lst-btn{padding:5px 8px;font-size:9px;letter-spacing:.1em}
   .info-bar{padding:0 12px;gap:12px}
   .info-bar-date{font-size:18px}
   .info-bar-meta{gap:10px;font-size:9px}
@@ -390,7 +405,7 @@ body.pro-mode{
 }
 /* Overlay må dekke hele rammen (ikke arve auto-størrelse fra regelen over),
    ellers ankres den mot venstre kant og havner forskjøvet vest for innsjøen */
-.pro-panel .img-frame img.lake-overlay{
+.pro-panel .img-frame img.lake-overlay,.pro-panel .img-frame img.lst-overlay{
   width:100%;height:100%;
 }
 /* Bildetekst under panelet: etikett til venstre, kreditering (Landsat) til høyre */
@@ -458,6 +473,11 @@ body.pro-mode{
     <button class="filter-btn" id="filter-btn" onclick="toggleFilter()" title="Vis kun bilder med under 50 % skydekke">
       ☁ &lt;50%
     </button>
+    <?php if ($cfg['s3_lst_enabled'] ?? false): ?>
+    <button class="lst-btn" id="lst-btn" onclick="toggleLstOverlay()" title="Vis landoverflatetemperatur (Sentinel-3) som overlegg">
+      🌡 °C
+    </button>
+    <?php endif; ?>
     <button class="fetch-btn" id="fetch-btn" onclick="triggerFetch()" title="Hent nye bilder fra Copernicus">
       ↓ Hent
     </button>
@@ -493,14 +513,17 @@ const API = 'api.php';
 const FETCH_TOKEN = <?= json_encode($cfg['fetch_token'] ?? '') ?>;
 const AOI = <?= json_encode($cfg['aoi'] ?? null) ?>;
 const LANDSAT_ENABLED = <?= json_encode($cfg['landsat_enabled'] ?? false) ?>;
+const S3_LST_ENABLED = <?= json_encode($cfg['s3_lst_enabled'] ?? false) ?>;
 let allImages = [];
 let primaryImages = [];
 let s1ByDate = {};
 let landsatByDate = {};
+let s3ByDate = {};
 let images = [];
 let idx = 0;
 let flashTimer = null;
 let filterActive = false;
+let lstOverlayActive = false; // ikke lagret i localStorage — nullstilles ved hver sideinnlasting
 let proMode = localStorage.getItem('proMode') === '1';
 
 // ── Data ────────────────────────────────────────────────────────────────────
@@ -515,10 +538,12 @@ async function loadImages() {
 
     s1ByDate = {};
     landsatByDate = {};
+    s3ByDate = {};
     primaryImages = [];
     for (const img of allImages) {
       if (img.sensor === 'S1' || img.type === 'radar') s1ByDate[img.date] = img;
       else if (img.sensor === 'LANDSAT' || img.type === 'landsat') landsatByDate[img.date] = img;
+      else if (img.sensor === 'S3' || img.type === 'lst') s3ByDate[img.date] = img;
       else primaryImages.push(img);
     }
     images = filterActive ? applyFilter(primaryImages) : primaryImages;
@@ -603,6 +628,13 @@ function toggleFilter() {
   goTo(0);
 }
 
+// ── LST-overlegg (Sentinel-3 landoverflatetemperatur) ────────────────────────
+function toggleLstOverlay() {
+  lstOverlayActive = !lstOverlayActive;
+  document.getElementById('lst-btn').classList.toggle('active', lstOverlayActive);
+  document.body.classList.toggle('lst-on', lstOverlayActive);
+}
+
 // ── Pro mode toggle ──────────────────────────────────────────────────────────
 function toggleProMode() {
   proMode = !proMode;
@@ -622,6 +654,15 @@ function updateProBtn() {
 }
 
 // ── Build slides ─────────────────────────────────────────────────────────────
+// Cache-busting: bilder caches lenge av nettleseren (.htaccess: immutable, 30 dager)
+// siden filnavnet normalt aldri gjenbrukes for en annen dato — men enkelte kilder
+// (f.eks. S3 LST) kan i praksis bli regenerert for samme dato/filnavn (reprosessert
+// NT-variant, manuell rekjøring). fetched_at i URL-en sikrer at nettleseren ser
+// oppdateringen med én gang i stedet for å vise en 30 dager gammel utgave.
+function versioned(path, obj) {
+  return obj?.fetched_at ? `${path}?t=${encodeURIComponent(obj.fetched_at)}` : path;
+}
+
 // Graticule-etiketter: reelle AOI-koordinater trykt i NV- og SØ-hjørnet av plansjen
 function addCoords(frame) {
   if (!AOI) return;
@@ -635,7 +676,7 @@ function addCoords(frame) {
   frame.append(tl, br);
 }
 
-function buildNoDataFrame(label) {
+function buildNoDataFrame(label, date) {
   const frame = document.createElement('div');
   frame.className = 'img-frame map-only';
   ['tl','tr','bl','br'].forEach(pos => {
@@ -648,6 +689,20 @@ function buildNoDataFrame(label) {
   lbl.className = 'no-data-label';
   lbl.textContent = label;
   frame.appendChild(lbl);
+
+  // Mangler både S2 og Landsat: legg LST-rutenettet oppå bakgrunnskartet i stedet
+  // for at det bare forsvinner sammen med det manglende optiske bildet.
+  if (S3_LST_ENABLED && date) {
+    const lst = s3ByDate[date];
+    if (lst?.filename) {
+      const ov = document.createElement('img');
+      ov.src       = versioned(`images/${lst.filename}`, lst);
+      ov.className = 'lst-overlay';
+      ov.alt       = '';
+      ov.onerror   = () => ov.remove();
+      frame.appendChild(ov);
+    }
+  }
   return frame;
 }
 
@@ -655,7 +710,7 @@ function buildImgFrame(img, i) {
   if (img.type === 'map') {
     const landsat = !proMode ? landsatByDate[img.date] : null;
     if (landsat?.filename) return buildLandsatFrame(landsat, true);
-    return buildNoDataFrame('Ingen satellittbilde');
+    return buildNoDataFrame('Ingen satellittbilde', img.date);
   }
 
   const frame = document.createElement('div');
@@ -668,7 +723,7 @@ function buildImgFrame(img, i) {
   addCoords(frame);
 
   const el = document.createElement('img');
-  el.src = `images/${img.filename}`;
+  el.src = versioned(`images/${img.filename}`, img);
   el.alt = img.date;
   el.loading = i === 0 ? 'eager' : 'lazy';
   el.addEventListener('click', e => { e.stopPropagation(); if (zoomState?.dragMoved) return; toggleZoom(el, frame, e); });
@@ -682,6 +737,18 @@ function buildImgFrame(img, i) {
     ov.onerror   = () => ov.remove();
     frame.appendChild(ov);
   }
+
+  if (S3_LST_ENABLED) {
+    const lst = s3ByDate[img.date];
+    if (lst?.filename) {
+      const ov = document.createElement('img');
+      ov.src       = versioned(`images/${lst.filename}`, lst);
+      ov.className = 'lst-overlay';
+      ov.alt       = '';
+      ov.onerror   = () => ov.remove();
+      frame.appendChild(ov);
+    }
+  }
   return frame;
 }
 
@@ -694,7 +761,7 @@ function buildS1Frame(s1) {
     frame.appendChild(c);
   });
   const el = document.createElement('img');
-  el.src     = `images/${s1.filename}`;
+  el.src     = versioned(`images/${s1.filename}`, s1);
   el.alt     = s1.date + ' SAR';
   el.loading = 'lazy';
   el.addEventListener('click', e => { e.stopPropagation(); if (zoomState?.dragMoved) return; toggleZoom(el, frame, e); });
@@ -712,7 +779,7 @@ function buildLandsatFrame(landsat, standalone = false) {
   });
   if (standalone) addCoords(frame);
   const el = document.createElement('img');
-  el.src     = `images/${landsat.filename}`;
+  el.src     = versioned(`images/${landsat.filename}`, landsat);
   el.alt     = landsat.date + ' Landsat';
   el.loading = 'lazy';
   el.addEventListener('click', e => { e.stopPropagation(); if (zoomState?.dragMoved) return; toggleZoom(el, frame, e); });
@@ -838,18 +905,18 @@ function buildTimeline() {
 
     if (img.thumbnail || img.filename) {
       const thumb = document.createElement('img');
-      thumb.src     = img.thumbnail ? `images/thumbs/${img.thumbnail}` : `images/${img.filename}`;
+      thumb.src     = img.thumbnail ? versioned(`images/thumbs/${img.thumbnail}`, img) : versioned(`images/${img.filename}`, img);
       thumb.alt     = img.date;
       thumb.loading = 'lazy';
       thumb.onerror = () => {
         thumb.onerror = () => { thumb.style.display = 'none'; };
-        if (img.filename) thumb.src = `images/${img.filename}`;
+        if (img.filename) thumb.src = versioned(`images/${img.filename}`, img);
         else thumb.style.display = 'none';
       };
       item.appendChild(thumb);
     } else if (landsatFallback && (landsatFallback.thumbnail || landsatFallback.filename)) {
       const thumb = document.createElement('img');
-      thumb.src     = landsatFallback.thumbnail ? `images/thumbs/${landsatFallback.thumbnail}` : `images/${landsatFallback.filename}`;
+      thumb.src     = landsatFallback.thumbnail ? versioned(`images/thumbs/${landsatFallback.thumbnail}`, landsatFallback) : versioned(`images/${landsatFallback.filename}`, landsatFallback);
       thumb.alt     = img.date + ' Landsat';
       thumb.loading = 'lazy';
       thumb.onerror = () => { thumb.style.display = 'none'; };
@@ -866,22 +933,26 @@ function buildTimeline() {
     label.textContent = formatDateShort(img.date);
     item.appendChild(label);
 
+    const hasT = S3_LST_ENABLED && !!s3ByDate[img.date]?.filename;
+
     if (proMode) {
       const hasO = img.type !== 'map' && !!img.filename;
       const hasR = !!s1ByDate[img.date]?.filename;
       const hasL = !!landsatByDate[img.date]?.filename;
-      if (hasO || hasR || hasL) {
+      if (hasO || hasR || hasL || hasT) {
         const badges = document.createElement('div');
         badges.className = 'tl-badges';
         if (hasO) { const b = document.createElement('span'); b.className = 'tl-badge tl-badge-o'; b.textContent = 'O'; badges.appendChild(b); }
         if (hasR) { const b = document.createElement('span'); b.className = 'tl-badge tl-badge-r'; b.textContent = 'R'; badges.appendChild(b); }
         if (hasL) { const b = document.createElement('span'); b.className = 'tl-badge tl-badge-l'; b.textContent = 'L'; badges.appendChild(b); }
+        if (hasT) { const b = document.createElement('span'); b.className = 'tl-badge tl-badge-t'; b.textContent = 'T'; badges.appendChild(b); }
         item.appendChild(badges);
       }
-    } else if (landsatFallback) {
+    } else if (landsatFallback || hasT) {
       const badges = document.createElement('div');
       badges.className = 'tl-badges';
-      const b = document.createElement('span'); b.className = 'tl-badge tl-badge-l'; b.textContent = 'L'; badges.appendChild(b);
+      if (landsatFallback) { const b = document.createElement('span'); b.className = 'tl-badge tl-badge-l'; b.textContent = 'L'; badges.appendChild(b); }
+      if (hasT) { const b = document.createElement('span'); b.className = 'tl-badge tl-badge-t'; b.textContent = 'T'; badges.appendChild(b); }
       item.appendChild(badges);
     }
 

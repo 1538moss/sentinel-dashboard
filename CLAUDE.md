@@ -1,7 +1,7 @@
 # Sentinel Satellite Dashboard
 
 ## Prosjektbeskrivelse
-En webløsning som automatisk henter daglige satellittbilder fra Sentinel-2 (ESA), lagrer dem, og viser dem som et interaktivt fullskjerm-slideshow med datomerking, skydekke-info og tidslinje. I Pro-modus vises i tillegg Sentinel-1 SAR-radar og (bak et eget flagg) Landsat 8-9 optisk (USGS).
+En webløsning som automatisk henter daglige satellittbilder fra Sentinel-2 (ESA), lagrer dem, og viser dem som et interaktivt fullskjerm-slideshow med datomerking, skydekke-info og tidslinje. I Pro-modus vises i tillegg Sentinel-1 SAR-radar og (bak et eget flagg) Landsat 8-9 optisk (USGS). Bak et eget flagg kan man også slå på et av/på-overlegg med landoverflatetemperatur fra Sentinel-3 (SLSTR LST), vist som et rutenett med fargede temperaturtall oppå det optiske bildet.
 
 **GitHub:** https://github.com/1538moss/sentinel-dashboard  
 **Produksjon:** https://kart.vansjo.top  
@@ -32,6 +32,7 @@ En webløsning som automatisk henter daglige satellittbilder fra Sentinel-2 (ESA
 | `data/lake_overlay.svg` | SVG-kontur av Vansjø |
 | `images/` | PNG-satellittbilder (`YYYY-MM-DD.png`) |
 | `images/thumbs/` | JPEG-thumbnails 136×136px (`YYYY-MM-DD.jpg`) for tidslinje |
+| `assets/fonts/` | Selv-hostede fonter (woff2 til frontend, `IBMPlexMono-Regular.ttf` til GD-rendring av LST-rutenettet i `fetch.php`) |
 
 ---
 
@@ -48,6 +49,8 @@ SH_CLIENT_SECRET=...
 FETCH_TOKEN=...   # Generer: php -r "echo bin2hex(random_bytes(24));"
 USGS_USERNAME=...      # EROS-brukernavn, for Landsat (M2M) — se https://ers.cr.usgs.gov/profile/access
 USGS_M2M_TOKEN=...
+CDSE_USERNAME=...      # Ekte CDSE-kontopassord (IKKE SH_CLIENT_ID/SECRET), for S3 LST-nedlasting — se avsnitt under
+CDSE_PASSWORD=...      # Kontoen må ikke ha 2FA/TOTP slått på (kjøres uten tilsyn i cron). Bruk anførselstegn ved spesialtegn.
 ```
 
 ### Fetch-token
@@ -73,8 +76,13 @@ USGS_M2M_TOKEN=...
 'data_dir'        => __DIR__ . '/data/'
 'metadata_file'   => __DIR__ . '/data/images.json'
 
-'usgs'            => [username, token, base_url, dataset, gdalwarp_cmd, gdal_translate_cmd, gdal_calc_cmd, gdalbuildvrt_cmd]
+'gdal'            => [gdalwarp_cmd, gdal_translate_cmd, gdal_calc_cmd, gdalbuildvrt_cmd]  // delt mellom Landsat- og S3-pipelinen
+'usgs'            => [username, token, base_url, dataset]
 'landsat_enabled' => false             // slå på Landsat-henting i fetch.php (krever gdal-bin/python3-gdal på serveren)
+
+'cdse_odata'      => [products_url, download_host, product_type, username, password]  // S3 LST-nedlasting (OData, IKKE Process API)
+'s3_lst_enabled'  => false             // slå på S3 LST-henting (krever gdal-bin med netCDF-driver — se eget avsnitt)
+'s3_lst'          => [grid_cell_km, temp_min_c, temp_max_c, font_size_px]
 ```
 
 OAuth2-klient opprettes på: https://shapps.dataspace.copernicus.eu/dashboard/#/account/settings  
@@ -88,7 +96,7 @@ OAuth2-klient opprettes på: https://shapps.dataspace.copernicus.eu/dashboard/#/
 |--------|-------------|
 | `?action=list` | Alle bilder (kun de med fil på disk + kart-oppføringer) |
 | `?action=fetch` | Henter nye bilder fra Copernicus — krever POST med `token` i body, rate-limitet til én kjøring per 10. min |
-| `?action=status` | Antall ekte bilder, AOI-info, om credentials er satt, nyeste S2-bilde (S1/Landsat hoppes over) |
+| `?action=status` | Antall ekte bilder, AOI-info, om credentials er satt, nyeste S2-bilde (S1/Landsat/S3 hoppes over) |
 | `?action=next` | Sjekker om nyere bilde er tilgjengelig i katalogen, eller estimerer neste dato — svaret caches i 15 min (`data/next_cache.json`) |
 
 ---
@@ -104,6 +112,7 @@ OAuth2-klient opprettes på: https://shapps.dataspace.copernicus.eu/dashboard/#/
 7. Bilder eldre enn `keep_days` slettes automatisk
 8. Dager uten satellittdata får `type: "map"` i metadata
 9. Når `landsat_enabled` er `true`: samme flyt for Landsat 8-9 via USGS M2M (se eget avsnitt under), uavhengig av S2/S1 — en feilende M2M-kobling logges og hopper over Landsat for hele kjøringen, uten å påvirke S2/S1
+10. Når `s3_lst_enabled` er `true`: uavhengig pipeline for Sentinel-3 LST (se eget avsnitt under) — påvirker aldri S2/S1/Landsat om noe feiler
 
 ---
 
@@ -133,7 +142,25 @@ I motsetning til Sentinel Hub har M2M **ingen** ferdig-rendret bilde-API — kun
 
 Lagres som `images/YYYY-MM-DD-landsat.png` + thumbnail, metadata med `sensor: "LANDSAT"`, `type: "landsat"`. Attribusjon **"Credit: U.S. Geological Survey"** vises i panelet og i `help.php`, separat fra ESA/Copernicus-attribusjonen.
 
-`usgs.gdalwarp_cmd`/`gdal_translate_cmd`/`gdal_calc_cmd`/`gdalbuildvrt_cmd` i `config.php` peker som standard på PATH-kommandoer (produksjon). For lokal Windows-testing overstyres disse med fulle stier til OSGeo4W (se kommentar i `config.php`).
+`gdal.gdalwarp_cmd`/`gdal_translate_cmd`/`gdal_calc_cmd`/`gdalbuildvrt_cmd` i `config.php` peker som standard på PATH-kommandoer (produksjon). For lokal Windows-testing overstyres disse med fulle stier til OSGeo4W (se kommentar i `config.php`).
+
+---
+
+## Sentinel-3 SLSTR LST — bak `s3_lst_enabled`-flagget
+
+Av/på-overlegg (ikke et eget panel) — et rutenett med fargede temperaturtall oppå det optiske S2-bildet, uavhengig av Std/Pro-modus. Slått av som standard; brukeren styrer det selv med `🌡 LST`-knappen i headeren (tilstanden lagres ikke mellom sideinnlastinger).
+
+Sentinel-3 sitt ferdigprosesserte LST-produkt (`SL_2_LST___`) finnes **ikke** via Sentinel Hub Process API (kun rå L1B-stråling/lysstyrke-temperatur er tilgjengelig der) — det må søkes opp og lastes ned via CDSE sin generelle **OData Products-katalog** i stedet, og krever en **annen tokentype** enn Process API:
+
+- **Søk**: `searchDatesS3()` bruker samme `getToken()` (client_credentials) som S2/S1 mot `catalogue.dataspace.copernicus.eu/odata/v1/Products`, med et romlig `OData.CSC.Intersects`-filter mot AOI-polygonet. Hver overflygning finnes typisk i to varianter — `_NR_` (Near Real Time) og `_NT_` (Non-Time-Critical, reprosessert et par dager senere med bedre kalibrering) — `_NT_` foretrekkes ved dedup.
+- **Nedlasting**: krever `grant_type=password` (ekte CDSE-kontopassord, klient `cdse-public`) — client_credentials-tokenet blir avvist med `"Token audience not allowed"` av nedlastingsserveren (`zipper.dataspace.copernicus.eu`). Egen metode `getODataToken()` cacher dette separat. Range-requests (delvis nedlasting) er **ikke støttet** av serveren (bekreftet i praksis — returnerer alltid full HTTP 200, aldri 206), men produktet er kun ~70MB (ikke 1.7-1.9GB som gamle 2016-arkivprodukter i katalogen), så full nedlasting er uproblematisk.
+- **Utpakking**: kun `LST_in.nc`/`geodetic_in.nc`/`flags_in.nc` pakkes ut fra zip-en (via `unzip -j`, ikke PHP sin `ZipArchive`-extension — samme filosofi som resten av pipelinen: skall ut til eksterne CLI-verktøy).
+- **Reprojisering**: Sentinel-3 SLSTR er et **swath-produkt** (bredde-/lengdegrad ligger i en egen fil, `geodetic_in.nc`, ikke en enkel geotransform som Landsat). `buildGeolocGridTif()` bygger en VRT med `GEOLOCATION`-metadata-domene og kjører `gdalwarp -geoloc`. To fallgruver funnet i praksis:
+  1. `latitude_in`/`longitude_in` er CF-pakket (`scale_factor=1e-6`) — GDALs GEOLOCATION-mekanisme leser råverdier UTEN å selv pakke ut scale/offset, så disse må først materialiseres til ekte gradverdier med `gdal_translate -unscale` — ellers feiler warpen fullstendig.
+  2. PHP sin `escapeshellarg()` på Windows **fjerner** anførselstegn i stedet for å escape dem, som ødelegger `NETCDF:"fil":variabel`-syntaksen fullstendig. `netcdfArg()` bygger derfor argumentet manuelt på Windows (`PHP_OS_FAMILY === 'Windows'`).
+- **Rutenett i stedet for kontinuerlig varmekart**: warpes til et rutenett på ~`grid_cell_km` (matcher SLSTR sin naturlige ~1km oppløsning, ingen kunstig gruppering), eksporteres til XYZ-tekstformat og parses direkte i PHP (ingen ekstra PHP-extension). Skydekte ruter (`confidence_in`-flagget, bit 16384 = `summary_cloud`) hopper over uten å tegne noe. Gjenværende ruter tegnes med PHP GD (`imagettftext`, font `assets/fonts/IBMPlexMono-Regular.ttf`) som fargede tall (avrundet °C) på transparent bakgrunn — fargen interpolert langs samme blå→grønn→oker→rød-skala som appens CSS-paletter, mellom `temp_min_c`/`temp_max_c`.
+
+Lagres som `images/YYYY-MM-DD-s3lst.png` + thumbnail, metadata med `sensor: "S3"`, `type: "lst"`. Siden Sentinel-3 er del av Copernicus (samme som S2/S1), trengs ingen egen USGS-lignende kreditering.
 
 ---
 
@@ -149,6 +176,7 @@ Lagres som `images/YYYY-MM-DD-landsat.png` + thumbnail, metadata med `sensor: "L
 | Filter | `☁ <50%`-knapp skjuler skydekte dager og kart |
 | Neste bilde | Klart-badge vises i header når nytt bilde er tilgjengelig (ingen estimert-dato lenger) |
 | Landsat-fallback (Std) | I Std-modus (ikke Pro): mangler S2-bilde for en dato, men finnes Landsat-bilde for samme dato → vises Landsat-bildet i hovedvisningen i stedet for kart, merket «Landsat (erstatning)» + USGS-kreditering. Pro-modus er upåvirket (viser alltid egen Landsat-panel uavhengig av S2). |
+| LST-overlegg | `🌡 LST`-knapp (kun synlig når `s3_lst_enabled`) slår av/på et rutenett med fargede temperaturtall oppå S2-bildet — fungerer i både Std- og Pro-modus (Pro-modus sitt "Optisk"-panel), tilstanden nullstilles ved sideinnlasting |
 | Mobil | Forenklet header under 640px |
 
 ### Tastaturnavigasjon
@@ -170,6 +198,12 @@ bash scripts/deploy.sh
 Ekskluderer: `images/`, `data/`, `scripts/`, `*.env`, `.git/`, `.claude/`
 
 `deploy.sh` sjekker og installerer automatisk `gdal-bin`/`python3-gdal` på serveren hvis de mangler (kreves for Landsat-pipeline før `landsat_enabled` kan slås på).
+
+**Før `s3_lst_enabled` slås på i produksjon**: bekreft at GDAL-installasjonen faktisk har netCDF-driveren (ikke gitt av `gdal-bin` alene, avhenger av hvordan pakken er bygget mot `libnetcdf`):
+```bash
+gdalinfo --formats | grep -i netcdf
+```
+Mangler den, må en GDAL-variant bygd med netCDF-støtte installeres før S3-pipelinen kan fungere.
 
 ### Etter første deploy (engangs)
 ```bash
@@ -199,7 +233,7 @@ Registrert i `www-data` sin crontab (`sudo crontab -u www-data -e`), slik at bil
 0 */6 * * * php /var/www/sentinel/fetch.php >> /var/www/sentinel/data/fetch.log 2>&1
 ```
 
-Kjører kl. 00, 06, 12, 18. Trygt å kjøre oftere enn én gang daglig — `fetch.php` hopper over datoer som allerede er lastet ned (skip-liste basert på fil-på-disk), så hyppigere kjøring fanger bare opp nye S2/S1/Landsat-scener raskere.
+Kjører kl. 00, 06, 12, 18. Trygt å kjøre oftere enn én gang daglig — `fetch.php` hopper over datoer som allerede er lastet ned (skip-liste basert på fil-på-disk), så hyppigere kjøring fanger bare opp nye S2/S1/Landsat/S3-scener raskere.
 
 ---
 

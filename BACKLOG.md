@@ -1,5 +1,43 @@
 # Backlog
 
+## Sentinel-3 SLSTR LST-overlegg (implementert og verifisert lokalt — venter på visuell bekreftelse + prod-rollout)
+
+Landoverflatetemperatur fra Sentinel-3 som et av/på-overlegg (rutenett med fargede temperaturtall) oppå S2-bildet, bak `s3_lst_enabled`-flagget. Ikke et eget Pro-panel som Landsat — brukerens eksplisitte ønske var et overlegg direkte på det optiske bildet, med tallverdier per ~1km rute (matcher SLSTR sin naturlige oppløsning) i stedet for et kontinuerlig fargekart.
+
+**Status:** All kode implementert og kjørt ende-til-ende mot ekte CDSE-data lokalt (2026-07-08). Gjenstår: visuell bekreftelse i nettleser (Std + Pro), deploy, og bruker må sette `CDSE_USERNAME`/`CDSE_PASSWORD` i produksjons-`.sentinel.env` samt bekrefte at produksjonsserverens GDAL har netCDF-driveren før `s3_lst_enabled` slås på.
+
+**Implementert:**
+1. `config.php`: GDAL-kommandoene hoistet ut av `usgs`-blokken til en ny delt `gdal`-blokk (brukes nå av både Landsat- og S3-pipelinen). Ny `cdse_odata`-blokk (products_url, download_host, product_type, username/password fra env). Ny `s3_lst_enabled`-flagg + `s3_lst`-blokk (grid_cell_km, temp_min_c, temp_max_c, font_size_px). `env.example` oppdatert med `CDSE_USERNAME`/`CDSE_PASSWORD`.
+2. `fetch.php`: `getODataToken()` (password-grant, cachet separat fra Process API-tokenet), `searchDatesS3()` (OData Products-søk, dedup med `_NT_` foretrukket over `_NR_`), `netcdfArg()` (plattform-trygg NETCDF-argument-bygging), `buildGeolocGridTif()` (GEOLOCATION-VRT + gdalwarp -geoloc), `lstColor()` (4-trinns fargeinterpolasjon), `fetchImageS3LST()` (full pipeline: nedlasting → unzip → unscale lat/lon → geoloc-warp → XYZ-eksport → PHP GD-rendring av tallrutenett), `rrmdir()` (rekursiv scratch-opprydding), gated blokk i `_run()`, `purgeStaleS3Scratch()`.
+3. `api.php`: `status`/`next` hopper over `S3` samme som `S1`/`LANDSAT`; `fetch` sin cache-invalidering sjekker `s3_downloaded`.
+4. `index.php`: `S3_LST_ENABLED`-konstant, `s3ByDate`-map, `.lst-overlay` (speiler `.lake-overlay`-mønsteret), `🌡 LST`-knapp (av/på, IKKE persistert i localStorage — nullstilles ved sideinnlasting, i motsetning til `proMode`), `toggleLstOverlay()`, `tl-badge-t` i tidslinjen (vises i BÅDE Std- og Pro-modus, i motsetning til O/R/L som er Pro-only), `--thermal`-aksentfarge (#C1440E).
+5. `help.php`, `cleanup.php` (`-s3lst.png`/`.jpg`-targets), `CLAUDE.md` — alle oppdatert med eget avsnitt.
+6. Font: `assets/fonts/IBMPlexMono-Regular.ttf` lastet ned (ekte TrueType, ikke woff2) for GD sin `imagettftext()`.
+
+**Fire ikke-opplagte problemer funnet og fikset under spike/implementering:**
+
+1. **Nedlasting krever en helt annen tokentype enn antatt.** Første antakelse var at samme `client_credentials`-token som Process API bruker ville fungere mot OData `$value`-nedlastingsendepunktet også (samme CDSE-identity-server). Faktisk resultat: `zipper.dataspace.copernicus.eu` avviser dette tokenet med `{"code":"DAT-ZIP-609","message":"Token audience not allowed"}`. Reell løsning (bekreftet via CDSE-dokumentasjon): nedlasting krever `grant_type=password` med et ekte CDSE-kontopassord mot den offentlige klienten `cdse-public` — en helt annen credential-type enn OAuth-klienten (client_id/secret), og kontoen kan ikke ha 2FA/TOTP siden dette kjøres uten tilsyn i cron.
+
+2. **Range-requests støttes ikke, men det er uproblematisk.** Planen var å optimalisere med HTTP range-requests for å unngå å laste ned hele produktet (fryktet 1.7-1.9GB per fil, basert på gamle 2016-arkivprodukter i katalogen). I praksis: `zipper`-serveren ignorerer `Range`-header fullstendig og returnerer alltid full HTTP 200 (aldri 206) — men det aktuelle produktet var kun ~70MB, så full nedlasting er helt uproblematisk. Kompleks zip-central-directory-range-parsing ble droppet til fordel for enkel full nedlasting + `unzip -j`.
+
+3. **`latitude_in`/`longitude_in` må "unscales" før GEOLOCATION-VRT fungerer.** Disse variablene er CF-pakket (`scale_factor=1e-6`, rå verdier som `56423711` i stedet for `56.42`). GDALs `-geoloc`-mekanisme leser rå pikselverdier fra GEOLOCATION-domenets `X_DATASET`/`Y_DATASET` UTEN selv å pakke ut scale/offset — med rå verdier feiler `gdalwarp -geoloc` fullstendig med `"Too many points failed to transform, unable to compute output bounds"` (fordi de tolkes som groteskt ugyldige gradverdier). Fiks: `gdal_translate -unscale -ot Float64` på lat/lon FØR de refereres i GEOLOCATION-VRT-en.
+
+4. **PHP sin `escapeshellarg()` på Windows ødelegger `NETCDF:"fil":variabel`-syntaksen.** Windows-implementasjonen fjerner anførselstegn inni strengen i stedet for å escape dem (`NETCDF:"fil":LST` → `NETCDF: fil :LST` — ugyldig for GDAL). Bekreftet at dette er Windows-spesifikt (Linux sin `escapeshellarg()` bruker enkle anførselstegn og bevarer doble anførselstegn intakt). Fiks: `netcdfArg()` bygger argumentet manuelt på Windows (`"NETCDF:\"fil\":var"` — backslash-escapede anførselstegn, korrekt for `CommandLineToArgvW`-parsing), verifisert direkte mot ekte `gdal_translate.exe` før det ble bygget inn i pipelinen.
+
+Mindre triviell feil underveis: `unzip` krever at alle flagg (`-j` for flat utpakking) står FØR zip-filnavnet i argumentlisten — plassert etter ga `caution: filename not matched: -j` siden `-j` da tolkes som et filnavnmønster.
+
+**Fullstendig verifisert ende-til-ende lokalt** (ad-hoc PHP-scripts som kalte `SentinelFetcher`-metodene direkte med `s3_lst_enabled` og lokale OSGeo4W GDAL-stier overstyrt, deretter slettet — ingen `_test_*.php` liggende igjen):
+- Ekte OData-søk fant 20 SL_2_LST-produkter for Vansjø-AOI-et i løpet av 3 dager (S3A+S3B kombinert).
+- Full pipeline kjørt mot et ekte produkt (2026-06-10): 53545 byte PNG med et realistisk temperaturrutenett (17-26°C, riktig fargekodet blå→grønn→oker→rød), skydekte områder korrekt utelatt (visuelt bekreftet at et annet testprodukt fra 2026-06-01 korrekt ga null tegnede ruter fordi HELE scenen var skydekket over land — ikke en bug, `confidence_in`-flagget stemte med rådata).
+- `gdalinfo`-inspeksjon bekreftet eksakte variabelnavn (`LST_in.nc:LST`, `geodetic_in.nc:latitude_in/longitude_in`, `flags_in.nc:confidence_in` med `flag_meanings` inkl. `summary_cloud` = bit 16384).
+
+**Gjenstående steg:**
+1. Bruker bekrefter visuelt i nettleser (Std- og Pro-modus, av/på-knapp)
+2. Sett `s3_lst_enabled => true` i produksjons-config og `CDSE_USERNAME`/`CDSE_PASSWORD` i `/var/www/.sentinel.env` etter neste deploy
+3. Bekreft at produksjonsserverens GDAL har netCDF-driveren (`gdalinfo --formats | grep -i netcdf`) FØR flagget slås på — ikke garantert av `gdal-bin` alene
+
+---
+
 ## Landsat som tredje PRO-panel (implementert og verifisert — klar for prod-rollout)
 
 Landsat 8-9 (USGS M2M API) som tredje bildekilde i PRO-modus, ved siden av S2 optisk og S1 radar (S2 | S1 | Landsat). Landsat-bilder har en synlig, separat attribusjon: **"Credit: U.S. Geological Survey"**.

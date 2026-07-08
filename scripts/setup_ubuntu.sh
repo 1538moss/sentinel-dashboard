@@ -14,11 +14,20 @@ echo "--- installer PHP og utvidelser ---"
 sudo apt-get update -qq
 sudo apt-get install -y php libapache2-mod-php php-curl php-gd
 
-echo "--- installer GDAL (Landsat-pipeline) ---"
-sudo apt-get install -y gdal-bin python3-gdal
+echo "--- installer GDAL (Landsat- og S3 LST-pipeline) + unzip (S3 LST) ---"
+sudo apt-get install -y gdal-bin python3-gdal unzip
 echo "  gdalwarp: $(command -v gdalwarp || echo 'IKKE FUNNET')"
 echo "  gdalbuildvrt: $(command -v gdalbuildvrt || echo 'IKKE FUNNET')"
 echo "  gdal_calc.py: $(command -v gdal_calc.py || echo 'IKKE FUNNET — sjekk at python3-gdal ga kjørbare scripts på PATH')"
+echo "  unzip: $(command -v unzip || echo 'IKKE FUNNET')"
+
+echo "--- sjekk netCDF-driver (kreves for s3_lst_enabled, ikke garantert av gdal-bin alene) ---"
+if gdalinfo --formats | grep -qi netcdf; then
+    echo "  netCDF-driver: OK"
+else
+    echo "  netCDF-driver: IKKE FUNNET — s3_lst_enabled vil feile før dette er løst"
+    echo "  (kan kreve en GDAL-variant bygd med --with-netcdf, se CLAUDE.md)"
+fi
 
 echo "--- aktiver Apache-moduler ---"
 sudo a2enmod rewrite headers

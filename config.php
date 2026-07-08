@@ -24,27 +24,54 @@ return [
     // ── Hent-token (beskytter ?action=fetch mot misbruk) ─────────────────────
     'fetch_token' => $env['FETCH_TOKEN'] ?? '',
 
+    // ── GDAL-kommandoer (delt mellom Landsat- og S3 LST-pipelinen) ───────────
+    // Standard antar gdalwarp/gdal_translate/gdal_calc.py/gdalbuildvrt på PATH
+    // (produksjon: apt install gdal-bin python3-gdal — MERK: må ha netCDF-driver
+    // for S3 LST, sjekk med `gdalinfo --formats | grep -i netcdf`). For lokal
+    // Windows-testing, overstyr med fulle stier i en lokal config-override, f.eks.:
+    //   'gdalwarp_cmd'       => '"C:/OSGeo4W/bin/gdalwarp.exe"',
+    //   'gdal_translate_cmd' => '"C:/OSGeo4W/bin/gdal_translate.exe"',
+    //   'gdal_calc_cmd'      => '"C:/OSGeo4W/apps/Python312/python.exe" "C:/OSGeo4W/apps/Python312/Scripts/gdal_calc.py"',
+    //   'gdalbuildvrt_cmd'   => '"C:/OSGeo4W/bin/gdalbuildvrt.exe"',
+    'gdal' => [
+        'gdalwarp_cmd'       => 'gdalwarp',
+        'gdal_translate_cmd' => 'gdal_translate',
+        'gdal_calc_cmd'      => 'gdal_calc.py',
+        'gdalbuildvrt_cmd'   => 'gdalbuildvrt',
+    ],
+
     // ── USGS M2M (Landsat 8-9) — uavhengig av Sentinel Hub-blokken over ──────
     'usgs' => [
         'username' => $env['USGS_USERNAME']  ?? '',
         'token'    => $env['USGS_M2M_TOKEN'] ?? '',
         'base_url' => 'https://m2m.cr.usgs.gov/api/api/json/stable/',
         'dataset'  => 'landsat_ot_c2_l2',
-
-        // GDAL-kommandoer for fetchImageLandsat()-pipelinen. Standard antar
-        // gdalwarp/gdal_translate/gdal_calc.py/gdalbuildvrt på PATH (produksjon:
-        // apt install gdal-bin python3-gdal). For lokal Windows-testing, overstyr
-        // med fulle stier i en lokal config-override, f.eks.:
-        //   'gdalwarp_cmd'       => '"C:/OSGeo4W/bin/gdalwarp.exe"',
-        //   'gdal_translate_cmd' => '"C:/OSGeo4W/bin/gdal_translate.exe"',
-        //   'gdal_calc_cmd'      => '"C:/OSGeo4W/apps/Python312/python.exe" "C:/OSGeo4W/apps/Python312/Scripts/gdal_calc.py"',
-        //   'gdalbuildvrt_cmd'   => '"C:/OSGeo4W/bin/gdalbuildvrt.exe"',
-        'gdalwarp_cmd'       => 'gdalwarp',
-        'gdal_translate_cmd' => 'gdal_translate',
-        'gdal_calc_cmd'      => 'gdal_calc.py',
-        'gdalbuildvrt_cmd'   => 'gdalbuildvrt',
     ],
-    'landsat_enabled' => false,
+    'landsat_enabled' => true,
+
+    // ── CDSE OData Products API (Sentinel-3 SL_2_LST-produktkatalog) ─────────
+    // Nedlasting av selve produktet krever et annet tokenet enn Process API:
+    // grant_type=password (ekte CDSE-brukernavn/passord) mot client_id=cdse-public,
+    // IKKE client_credentials-klienten over. Se getODataToken() i fetch.php.
+    'cdse_odata' => [
+        'products_url'  => 'https://catalogue.dataspace.copernicus.eu/odata/v1/Products',
+        'download_host' => 'https://zipper.dataspace.copernicus.eu/odata/v1/Products', // + "(<Id>)/$value"
+        'product_type'  => 'SL_2_LST___',
+        'username'      => $env['CDSE_USERNAME'] ?? '',
+        'password'      => $env['CDSE_PASSWORD'] ?? '',
+    ],
+
+    // ── Sentinel-3 SLSTR L2 LST — bak s3_lst_enabled-flagget ─────────────────
+    // Vises som et av/på-overlegg (rutenett med temperaturtall) oppå S2-bildet,
+    // uavhengig av Std/Pro-modus. Se CLAUDE.md for hele pipelinen.
+    's3_lst_enabled' => true,
+    's3_lst' => [
+        'grid_cell_km' => 2.5,   // ruteavstand — SLSTR sin naturlige oppløsning er ~1km,
+                                  // men glisnere rutenett gir mer lesbare/større tall
+        'temp_min_c'   => -20,   // fargeskala nedre grense (blå)
+        'temp_max_c'   => 30,    // fargeskala øvre grense (rød)
+        'font_size_px' => 16,
+    ],
 
     // ── Geografisk område (WGS84) ────────────────────────────────────────────
     'aoi' => [

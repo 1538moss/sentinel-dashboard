@@ -58,7 +58,7 @@ try {
             set_time_limit(300);
             $fetcher = new SentinelFetcher($config);
             $stats   = $fetcher->run();
-            if (($stats['downloaded'] ?? 0) > 0 || ($stats['s1_downloaded'] ?? 0) > 0 || ($stats['landsat_downloaded'] ?? 0) > 0) {
+            if (($stats['downloaded'] ?? 0) > 0 || ($stats['s1_downloaded'] ?? 0) > 0 || ($stats['landsat_downloaded'] ?? 0) > 0 || ($stats['s3_downloaded'] ?? 0) > 0) {
                 @unlink($config['data_dir'] . 'next_cache.json');
             }
             echo json_encode(['ok' => true, 'stats' => $stats]);
@@ -74,7 +74,7 @@ try {
                 fn($m) => ($m['type'] ?? '') !== 'map' && !empty($m['filename'])));
             $latest = null;
             foreach ($real as $m) {
-                if (!in_array($m['sensor'] ?? '', ['S1', 'LANDSAT'], true)) { $latest = $m; break; }
+                if (!in_array($m['sensor'] ?? '', ['S1', 'LANDSAT', 'S3'], true)) { $latest = $m; break; }
             }
             echo json_encode([
                 'ok'          => true,
@@ -97,11 +97,11 @@ try {
             $fetcher  = new SentinelFetcher($config);
             $metadata = $fetcher->loadMetadata();
 
-            // Finn siste ekte S2-bilde (ikke kart, ikke S1-radar, ikke Landsat)
+            // Finn siste ekte S2-bilde (ikke kart, ikke S1-radar, ikke Landsat, ikke S3)
             $latestDate = null;
             foreach ($metadata as $m) {
                 if (($m['type'] ?? '') === 'map') continue;
-                if (in_array($m['sensor'] ?? '', ['S1', 'LANDSAT'], true)) continue;
+                if (in_array($m['sensor'] ?? '', ['S1', 'LANDSAT', 'S3'], true)) continue;
                 if (!empty($m['filename'])) {
                     $latestDate = $m['date'];
                     break;
