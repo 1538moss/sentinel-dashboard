@@ -1285,6 +1285,31 @@ JS;
         return array_map(fn($m) => $m['value'], $means);
     }
 
+    // Fyll indre datahull i en dato→døgnmiddel-serie: hver manglende dag mellom
+    // to kjente døgn får medianen av nærmeste kjente døgn før og etter hullet
+    // (for to verdier = snittet av dem). Kant-hull — før første eller etter
+    // siste kjente døgn (typisk Frosts ~1 døgns publiseringsforsinkelse) —
+    // fylles IKKE: ingen ekstrapolering.
+    // Returnerer [fylt serie, liste over interpolerte datoer].
+    private function fillFrostGaps(array $means): array
+    {
+        $dates = array_keys($means);
+        sort($dates);
+        $interpolated = [];
+        for ($i = 1; $i < count($dates); $i++) {
+            $prev = new DateTime($dates[$i - 1]);
+            $next = new DateTime($dates[$i]);
+            if ((int)$prev->diff($next)->days <= 1) continue;
+            $fill = ($means[$dates[$i - 1]] + $means[$dates[$i]]) / 2;
+            for ($day = (clone $prev)->modify('+1 day'); $day < $next; $day->modify('+1 day')) {
+                $d = $day->format('Y-m-d');
+                $means[$d] = $fill;
+                $interpolated[] = $d;
+            }
+        }
+        return [$means, $interpolated];
+    }
+
     // Bygg og skriv data/kuldemengde.json for sesongen $asOf tilhører.
     // Idempotent: overskriver alltid hele filen. Utenfor sesong skrives en tom
     // locations-serie UTEN å kalle Frost — frontend skjuler da ❄-knappen.
@@ -1301,13 +1326,16 @@ JS;
         $season = $this->kmSeasonFor($asOf)
             ?? $this->kmSeasonFor(date('Y-m-d', strtotime("$asOf -{$keepDays} days")));
 
-        // Ett Frost-kall per unik stasjon — flere steder kan dele stasjon
-        $byStation = [];
+        // Ett Frost-kall per unik stasjon — flere steder kan dele stasjon.
+        // Indre datahull interpoleres per stasjon (se fillFrostGaps()).
+        $byStation       = [];
+        $filledByStation = [];
         if ($season !== null) {
             $from = $season['start'];
             $toEx = date('Y-m-d', strtotime(min($asOf, $season['end']) . ' +1 day'));
             foreach (array_unique(array_column($locs, 'station')) as $station) {
-                $byStation[$station] = $this->fetchFrostDailyMeans($station, $from, $toEx);
+                [$byStation[$station], $filledByStation[$station]] =
+                    $this->fillFrostGaps($this->fetchFrostDailyMeans($station, $from, $toEx));
             }
         }
 
@@ -1321,10 +1349,13 @@ JS;
 
         $days = 0;
         $missingCount = 0;
+        $interpCount  = 0;
         foreach ($locs as $loc) {
             $means   = $byStation[$loc['station']] ?? [];
+            $filled  = array_flip($filledByStation[$loc['station']] ?? []);
             $series  = [];
             $missing = [];
+            $interp  = [];
             if ($season !== null) {
                 $sum  = 0.0;
                 $day  = new DateTime($season['start']);
@@ -1334,26 +1365,33 @@ JS;
                     if (array_key_exists($d, $means)) {
                         $sum += min(0.0, $means[$d]);
                         $series[$d] = ['mean' => round($means[$d], 1), 'km' => round($sum, 1)];
+                        if (isset($filled[$d])) {
+                            $series[$d]['interpolated'] = true;
+                            $interp[] = $d;
+                        }
                     } else {
-                        // Manglende døgn (stasjonshull eller Frosts ~1 døgns publiserings-
-                        // forsinkelse) bidrar 0 — frontendens «nyeste ≤ dato» brer over hullet
+                        // Ufylte kant-hull (før første/etter siste kjente døgn, typisk
+                        // Frosts ~1 døgns publiseringsforsinkelse) bidrar 0 —
+                        // frontendens «nyeste ≤ dato» brer over hullet
                         $missing[] = $d;
                     }
                     $day->modify('+1 day');
                 }
             }
             $out['locations'][] = [
-                'name'         => $loc['name'],
-                'lat'          => $loc['lat'],
-                'lon'          => $loc['lon'],
-                'station'      => $loc['station'],
-                'station_name' => $loc['station_name'] ?? $loc['station'],
-                'missing_days' => $missing,
+                'name'              => $loc['name'],
+                'lat'               => $loc['lat'],
+                'lon'               => $loc['lon'],
+                'station'           => $loc['station'],
+                'station_name'      => $loc['station_name'] ?? $loc['station'],
+                'missing_days'      => $missing,
+                'interpolated_days' => $interp,
                 // Tom serie må bli {} i JSON (ikke []) så frontend kan bruke Object.keys
-                'series'       => $series === [] ? new stdClass() : $series,
+                'series'            => $series === [] ? new stdClass() : $series,
             ];
             $days         = max($days, count($series));
             $missingCount = max($missingCount, count($missing));
+            $interpCount  = max($interpCount, count($interp));
         }
 
         // Atomisk skriving — api.php leser filen samtidig
@@ -1362,9 +1400,10 @@ JS;
         rename($tmp, $file);
 
         return [
-            'season'  => $season ? "{$season['start']} → {$season['end']}" : 'utenfor sesong',
-            'days'    => $days,
-            'missing' => $missingCount,
+            'season'       => $season ? "{$season['start']} → {$season['end']}" : 'utenfor sesong',
+            'days'         => $days,
+            'missing'      => $missingCount,
+            'interpolated' => $interpCount,
         ];
     }
 
@@ -1726,7 +1765,7 @@ JS;
             try {
                 $km = $this->updateKuldemengde();
                 $stats['km_updated'] = true;
-                $this->log("KM OK    {$km['season']}  ({$km['days']} døgn, {$km['missing']} mangler)");
+                $this->log("KM OK    {$km['season']}  ({$km['days']} døgn, {$km['missing']} mangler, {$km['interpolated']} interpolert)");
             } catch (RuntimeException $e) {
                 $stats['km_errors'][] = $e->getMessage();
                 $this->log("KM FEIL  " . $e->getMessage());
@@ -1850,7 +1889,7 @@ if (PHP_SAPI === 'cli' && realpath($argv[0]) === __FILE__) {
         }
         try {
             $km = $fetcher->updateKuldemengde($args['kuldemengde']);
-            echo "Kuldemengde oppdatert: {$km['season']}  ({$km['days']} døgn, {$km['missing']} mangler)\n";
+            echo "Kuldemengde oppdatert: {$km['season']}  ({$km['days']} døgn, {$km['missing']} mangler, {$km['interpolated']} interpolert)\n";
             exit(0);
         } catch (RuntimeException $e) {
             echo "FEIL: " . $e->getMessage() . "\n";

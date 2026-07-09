@@ -87,7 +87,7 @@ return [
         'season_end'   => '05-31',    // MM-DD — jun–sep er utenfor sesong
         'data_file'    => __DIR__ . '/data/kuldemengde.json',
         'locations'    => [
-            ['name' => 'Lødengfjorden', 'lat' => 59.41, 'lon' => 10.83,
+            ['name' => 'Lødengfjorden', 'lat' => 59.4857391, 'lon' => 10.7860853,
              'station' => 'SN17150', 'station_name' => 'Rygge'],
         ],
     ],
