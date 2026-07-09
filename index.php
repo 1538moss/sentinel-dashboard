@@ -158,8 +158,10 @@ body.lst-on .lst-overlay{opacity:1}
   font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;
   color:var(--ink);background:rgba(231,227,214,.92);
   border:1px solid var(--ink);padding:4px 8px;
-  pointer-events:none;white-space:nowrap;
+  pointer-events:none;white-space:nowrap;text-align:center;
 }
+.km-label .km-ok{color:var(--green);font-weight:700}
+.km-label .km-low{color:var(--red);font-weight:700}
 body.km-on .km-label{display:block}
 .img-frame.zoomed img.panning{cursor:grabbing}
 
@@ -718,6 +720,8 @@ function addCoords(frame) {
 // Kuldemengde-etiketter: én papirboks per sted, plassert på stedets koordinat.
 // Bruker nyeste serieoppføring ≤ slidedatoen (Frost publiserer døgnmiddel med
 // ~1 døgns forsinkelse), og skriver alltid hvilken dato verdien gjelder.
+// To linjer: stedsnavn, så «trengs/målt» — målt tall grønt når kuldemengden
+// har passert stedets skøytbar-is-terskel (km_needed), ellers rødt.
 function buildKmLabels(date) {
   if (!KULDEMENGDE_ENABLED || !date || !AOI || !kmLocations.length) return [];
   const labels = [];
@@ -725,13 +729,27 @@ function buildKmLabels(date) {
     let key = null;
     for (const d of loc.dates) { if (d <= date) key = d; else break; }
     if (!key) continue;   // slidedato før sesongstart
-    const km  = loc.series[key].km;
-    const val = km === 0 ? '0,0' : '−' + Math.abs(km).toFixed(1).replace('.', ',');
+    const km = loc.series[key].km;   // positivt tall — se updateKuldemengde()
+    const kmStr = km.toFixed(1).replace('.', ',');
     const lbl = document.createElement('div');
     lbl.className   = 'km-label';
     lbl.style.left  = (100 * (loc.lon - AOI.west) / (AOI.east - AOI.west)) + '%';
     lbl.style.top   = (100 * (AOI.north - loc.lat) / (AOI.north - AOI.south)) + '%';
-    lbl.textContent = `❄ ${loc.name} ${val} °C·døgn (pr. ${formatDateShortNo(key)})`;
+    const nameEl = document.createElement('div');
+    nameEl.className   = 'km-name';
+    nameEl.textContent = `❄ ${loc.name}`;
+    const valEl = document.createElement('div');
+    valEl.className = 'km-val';
+    if (loc.km_needed != null) {
+      valEl.append(`${loc.km_needed}/`);
+      const num = document.createElement('span');
+      num.className   = km > loc.km_needed ? 'km-ok' : 'km-low';
+      num.textContent = kmStr;
+      valEl.append(num, ` (pr. ${formatDateShortNo(key)})`);
+    } else {
+      valEl.textContent = `${kmStr} °C·døgn (pr. ${formatDateShortNo(key)})`;
+    }
+    lbl.append(nameEl, valEl);
     labels.push(lbl);
   }
   return labels;

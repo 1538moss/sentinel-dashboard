@@ -86,11 +86,13 @@ return [
         'season_start' => '10-01',    // MM-DD — kuldemengden nullstilles her
         'season_end'   => '05-31',    // MM-DD — jun–sep er utenfor sesong
         'data_file'    => __DIR__ . '/data/kuldemengde.json',
+        // km_needed: kuldemengde (°C·døgn, positivt tall) som må til før isen
+        // regnes som skøytbar på stedet — vises som «trengs/målt» i etiketten
         'locations'    => [
             ['name' => 'Lødengfjorden', 'lat' => 59.4857391, 'lon' => 10.7860853,
-             'station' => 'SN17150', 'station_name' => 'Rygge'],
+             'station' => 'SN17150', 'station_name' => 'Rygge', 'km_needed' => 23],
             ['name' => 'Borgebunn', 'lat' => 59.3580611, 'lon' => 10.9224714,
-             'station' => 'SN17150', 'station_name' => 'Rygge'],
+             'station' => 'SN17150', 'station_name' => 'Rygge', 'km_needed' => 61],
         ],
     ],
 

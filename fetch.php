@@ -1363,7 +1363,8 @@ JS;
                 while ($day <= $last) {
                     $d = $day->format('Y-m-d');
                     if (array_key_exists($d, $means)) {
-                        $sum += min(0.0, $means[$d]);
+                        // Kuldemengde regnes som positivt tall: −4 °C-døgn bidrar +4
+                        $sum += max(0.0, -$means[$d]);
                         $series[$d] = ['mean' => round($means[$d], 1), 'km' => round($sum, 1)];
                         if (isset($filled[$d])) {
                             $series[$d]['interpolated'] = true;
@@ -1384,6 +1385,7 @@ JS;
                 'lon'               => $loc['lon'],
                 'station'           => $loc['station'],
                 'station_name'      => $loc['station_name'] ?? $loc['station'],
+                'km_needed'         => $loc['km_needed'] ?? null,
                 'missing_days'      => $missing,
                 'interpolated_days' => $interp,
                 // Tom serie må bli {} i JSON (ikke []) så frontend kan bruke Object.keys
