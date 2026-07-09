@@ -89,6 +89,8 @@ return [
         'locations'    => [
             ['name' => 'Lødengfjorden', 'lat' => 59.4857391, 'lon' => 10.7860853,
              'station' => 'SN17150', 'station_name' => 'Rygge'],
+            ['name' => 'Borgebunn', 'lat' => 59.3580611, 'lon' => 10.9224714,
+             'station' => 'SN17150', 'station_name' => 'Rygge'],
         ],
     ],
 
