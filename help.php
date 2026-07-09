@@ -297,7 +297,8 @@ kbd{
         <strong>per bildedato</strong> — blar du i tidslinjen ser du hvordan kulden bygger seg opp.
         Etiketten viser «trengs/målt», f.eks. «23/47,3»: første tall er kuldemengden stedet trenger
         før isen erfaringsmessig er skøytbar, andre tall er målt kuldemengde — <strong>grønt</strong>
-        når terskelen er passert, <strong>rødt</strong> ellers. Etiketten oppgir alltid hvilken dato
+        når terskelen er passert, <strong>rødt</strong> ellers. Et lite trafikklys-skilt i boksen
+        lyser med samme farge, så statusen kan leses på avstand. Etiketten oppgir alltid hvilken dato
         verdien gjelder («pr. 12. jan»), siden døgnmiddelet publiseres med omtrent ett døgns
         forsinkelse. Knappen vises kun i sesongen (oktober–mai), og huskes ikke mellom
         sideinnlastinger.

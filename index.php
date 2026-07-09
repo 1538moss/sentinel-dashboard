@@ -155,14 +155,21 @@ body.lst-on .lst-overlay{opacity:1}
    frost.locations, plassert med prosent direkte fra AOI-koordinatene */
 .km-label{
   position:absolute;transform:translate(-50%,-50%);z-index:5;display:none;
+  align-items:center;gap:7px;
   font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;
   color:var(--ink);background:rgba(231,227,214,.92);
   border:1px solid var(--ink);padding:4px 8px;
-  pointer-events:none;white-space:nowrap;text-align:center;
+  pointer-events:none;white-space:nowrap;text-align:left;
 }
 .km-label .km-ok{color:var(--green);font-weight:700}
 .km-label .km-low{color:var(--red);font-weight:700}
-body.km-on .km-label{display:block}
+/* Trafikklys-skilt: mørkt hus, kun gjeldende lampe lyser (grønn = terskel passert) */
+.km-light svg{display:block}
+.km-light rect{fill:var(--ink)}
+.km-light circle{fill:rgba(231,227,214,.25)}
+.km-light.km-ok .lamp-g{fill:#2F9E57}
+.km-light.km-low .lamp-r{fill:#D0453A}
+body.km-on .km-label{display:flex}
 .img-frame.zoomed img.panning{cursor:grabbing}
 
 /* Kart-only slide (ingen satellittdata) */
@@ -338,7 +345,8 @@ body.km-on .km-label{display:block}
   #counter{display:none}
   .hdr-right{gap:8px}
   .fetch-btn,.filter-btn,.lst-btn,.frost-btn{padding:5px 8px;font-size:9px;letter-spacing:.1em}
-  .km-label{font-size:9px;padding:3px 6px}
+  .km-label{font-size:9px;padding:3px 6px;gap:5px}
+  .km-light svg{width:9px;height:20px}
   .info-bar{padding:0 12px;gap:12px}
   .info-bar-date{font-size:18px}
   .info-bar-meta{gap:10px;font-size:9px}
@@ -721,7 +729,8 @@ function addCoords(frame) {
 // Bruker nyeste serieoppføring ≤ slidedatoen (Frost publiserer døgnmiddel med
 // ~1 døgns forsinkelse), og skriver alltid hvilken dato verdien gjelder.
 // To linjer: stedsnavn, så «trengs/målt» — målt tall grønt når kuldemengden
-// har passert stedets skøytbar-is-terskel (km_needed), ellers rødt.
+// har passert stedets skøytbar-is-terskel (km_needed), ellers rødt. Et lite
+// trafikklys-skilt til venstre i boksen lyser med samme status.
 function buildKmLabels(date) {
   if (!KULDEMENGDE_ENABLED || !date || !AOI || !kmLocations.length) return [];
   const labels = [];
@@ -741,15 +750,27 @@ function buildKmLabels(date) {
     const valEl = document.createElement('div');
     valEl.className = 'km-val';
     if (loc.km_needed != null) {
+      const ok = km > loc.km_needed;
+      const light = document.createElement('span');
+      light.className = 'km-light ' + (ok ? 'km-ok' : 'km-low');
+      light.innerHTML =
+        '<svg viewBox="0 0 12 26" width="12" height="26" aria-hidden="true">' +
+        '<rect x="0.5" y="0.5" width="11" height="25" rx="2.5"/>' +
+        '<circle class="lamp-r" cx="6" cy="5.5" r="3"/>' +
+        '<circle class="lamp-y" cx="6" cy="13" r="3"/>' +
+        '<circle class="lamp-g" cx="6" cy="20.5" r="3"/></svg>';
+      lbl.appendChild(light);
       valEl.append(`${loc.km_needed}/`);
       const num = document.createElement('span');
-      num.className   = km > loc.km_needed ? 'km-ok' : 'km-low';
+      num.className   = ok ? 'km-ok' : 'km-low';
       num.textContent = kmStr;
       valEl.append(num, ` (pr. ${formatDateShortNo(key)})`);
     } else {
       valEl.textContent = `${kmStr} °C·døgn (pr. ${formatDateShortNo(key)})`;
     }
-    lbl.append(nameEl, valEl);
+    const txt = document.createElement('div');
+    txt.append(nameEl, valEl);
+    lbl.appendChild(txt);
     labels.push(lbl);
   }
   return labels;
