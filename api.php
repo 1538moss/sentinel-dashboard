@@ -46,11 +46,21 @@ try {
                 if (($m['type'] ?? '') === 'map') return true;
                 return !empty($m['filename']) && file_exists($config['images_dir'] . $m['filename']);
             }));
+            // Kuldemengde-serien (MET Frost) rir med i list-svaret — .htaccess
+            // blokkerer direkte lesing av /data/, så filen må leveres herfra
+            $km = null;
+            if (($config['kuldemengde_enabled'] ?? false) === true) {
+                $kmFile = $config['frost']['data_file'] ?? ($config['data_dir'] . 'kuldemengde.json');
+                if (file_exists($kmFile)) {
+                    $km = json_decode(file_get_contents($kmFile), true);
+                }
+            }
             echo json_encode([
-                'ok'     => true,
-                'images' => $metadata,
-                'aoi'    => $config['aoi']['name'],
-                'count'  => count($metadata),
+                'ok'          => true,
+                'images'      => $metadata,
+                'aoi'         => $config['aoi']['name'],
+                'count'       => count($metadata),
+                'kuldemengde' => $km,
             ]);
             break;
 

@@ -1194,6 +1194,180 @@ JS;
         return $imageData;
     }
 
+    // ── Kuldemengde (MET Norge Frost API) — bak kuldemengde_enabled-flagget ──
+    // Sum av alle døgnmiddeltemperaturer under 0 °C siden sesongstart (1. okt),
+    // per sted i frost.locations. Skrives til data/kuldemengde.json (atomisk,
+    // samme mønster som saveMetadata) og leveres til frontend via ?action=list.
+
+    // Sesongen dato D tilhører: okt–des → starter samme år, jan–mai → forrige
+    // år, jun–sep → utenfor sesong (null). Ren MM-DD-strengsammenligning.
+    private function kmSeasonFor(string $date): ?array
+    {
+        $startMD = $this->config['frost']['season_start'] ?? '10-01';
+        $endMD   = $this->config['frost']['season_end']   ?? '05-31';
+        $y  = (int)substr($date, 0, 4);
+        $md = substr($date, 5);
+        if ($md >= $startMD) return ['start' => "$y-$startMD",       'end' => ($y + 1) . "-$endMD"];
+        if ($md <= $endMD)   return ['start' => ($y - 1) . "-$startMD", 'end' => "$y-$endMD"];
+        return null;
+    }
+
+    private function frostRequest(array $query): array
+    {
+        $clientId = $this->config['frost']['client_id'] ?? '';
+        if (empty($clientId)) {
+            throw new RuntimeException(
+                "Mangler FROST_CLIENT_ID for kuldemengde.\n" .
+                "Skaff gratis klient-ID på https://frost.met.no/auth/requestCredentials.html\n" .
+                "og lim inn FROST_CLIENT_ID i .sentinel.env (ett nivå opp fra webroot)."
+            );
+        }
+        $url = ($this->config['frost']['base_url'] ?? 'https://frost.met.no/observations/v0.jsonld')
+             . '?' . http_build_query($query);
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_USERPWD        => $clientId . ':',   // klient-ID som brukernavn, tomt passord
+            CURLOPT_HTTPHEADER     => ['Accept: application/json'],
+            CURLOPT_TIMEOUT        => 30,
+        ]);
+        $body = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err  = curl_error($ch);
+        curl_close($ch);
+        if ($body === false) throw new RuntimeException("Frost-forespørsel feilet: $err");
+        return [$code, $body];
+    }
+
+    // Døgnmiddeltemperaturer for én stasjon → [dato => °C]. referencetime-intervallet
+    // er slutt-eksklusivt hos Frost.
+    private function fetchFrostDailyMeans(string $station, string $from, string $toExclusive): array
+    {
+        $element = $this->config['frost']['element'] ?? 'mean(air_temperature P1D)';
+        $query = [
+            'sources'       => $station,
+            'elements'      => $element,
+            'referencetime' => "$from/$toExclusive",
+            // P1D-elementet finnes ofte både som PT0H (kalenderdøgn UTC) og PT6H
+            // (tradisjonelt klimadøgn 06–06 UTC) — be kun om PT0H for å slippe duplikater
+            'timeoffsets'   => 'PT0H',
+        ];
+        [$code, $body] = $this->frostRequest($query);
+        if ($code === 412) {
+            // Stasjonen mangler PT0H-serien — hent alt og dedup selv i stedet
+            unset($query['timeoffsets']);
+            [$code, $body] = $this->frostRequest($query);
+        }
+        if ($code === 404 || $code === 412) return [];   // ingen data i perioden
+        if ($code === 401 || $code === 403) {
+            throw new RuntimeException("Frost avviste forespørselen (HTTP $code) — sjekk FROST_CLIENT_ID i .sentinel.env");
+        }
+        if ($code !== 200) {
+            throw new RuntimeException("Frost-forespørsel feilet (HTTP $code): " . substr((string)$body, 0, 300));
+        }
+
+        $data  = json_decode($body, true);
+        $means = [];   // dato => ['value' => °C, 'rank' => timeoffset-prioritet]
+        foreach ($data['data'] ?? [] as $item) {
+            $date = substr($item['referenceTime'] ?? '', 0, 10);
+            if ($date === '') continue;
+            foreach ($item['observations'] ?? [] as $obs) {
+                if (($obs['elementId'] ?? '') !== $element) continue;
+                if ((int)($obs['qualityCode'] ?? 0) >= 6) continue;   // 6/7 = feilaktig måling
+                if (!isset($obs['value']) || !is_numeric($obs['value'])) continue;
+                $offset = $obs['timeOffset'] ?? '';
+                $rank   = $offset === 'PT0H' ? 0 : ($offset === 'PT6H' ? 1 : 2);
+                if (!isset($means[$date]) || $rank < $means[$date]['rank']) {
+                    $means[$date] = ['value' => (float)$obs['value'], 'rank' => $rank];
+                }
+            }
+        }
+        return array_map(fn($m) => $m['value'], $means);
+    }
+
+    // Bygg og skriv data/kuldemengde.json for sesongen $asOf tilhører.
+    // Idempotent: overskriver alltid hele filen. Utenfor sesong skrives en tom
+    // locations-serie UTEN å kalle Frost — frontend skjuler da ❄-knappen.
+    public function updateKuldemengde(?string $asOf = null): array
+    {
+        $asOf  = $asOf ?: date('Y-m-d');
+        $frost = $this->config['frost'] ?? [];
+        $file  = $frost['data_file'] ?? ($this->config['data_dir'] . 'kuldemengde.json');
+        $locs  = $frost['locations'] ?? [];
+
+        // Relevant sesong: dagens — eller, tidlig i oktober, sesongen som fortsatt
+        // dekker de eldste slidene i keep_days-vinduet (de får bare ingen oppføring)
+        $keepDays = $this->config['keep_days'] ?? 30;
+        $season = $this->kmSeasonFor($asOf)
+            ?? $this->kmSeasonFor(date('Y-m-d', strtotime("$asOf -{$keepDays} days")));
+
+        // Ett Frost-kall per unik stasjon — flere steder kan dele stasjon
+        $byStation = [];
+        if ($season !== null) {
+            $from = $season['start'];
+            $toEx = date('Y-m-d', strtotime(min($asOf, $season['end']) . ' +1 day'));
+            foreach (array_unique(array_column($locs, 'station')) as $station) {
+                $byStation[$station] = $this->fetchFrostDailyMeans($station, $from, $toEx);
+            }
+        }
+
+        $out = [
+            'season_start' => $season['start'] ?? null,
+            'season_end'   => $season['end']   ?? null,
+            'unit'         => 'degC_days',
+            'updated_at'   => date('c'),
+            'locations'    => [],
+        ];
+
+        $days = 0;
+        $missingCount = 0;
+        foreach ($locs as $loc) {
+            $means   = $byStation[$loc['station']] ?? [];
+            $series  = [];
+            $missing = [];
+            if ($season !== null) {
+                $sum  = 0.0;
+                $day  = new DateTime($season['start']);
+                $last = new DateTime(min($asOf, $season['end']));
+                while ($day <= $last) {
+                    $d = $day->format('Y-m-d');
+                    if (array_key_exists($d, $means)) {
+                        $sum += min(0.0, $means[$d]);
+                        $series[$d] = ['mean' => round($means[$d], 1), 'km' => round($sum, 1)];
+                    } else {
+                        // Manglende døgn (stasjonshull eller Frosts ~1 døgns publiserings-
+                        // forsinkelse) bidrar 0 — frontendens «nyeste ≤ dato» brer over hullet
+                        $missing[] = $d;
+                    }
+                    $day->modify('+1 day');
+                }
+            }
+            $out['locations'][] = [
+                'name'         => $loc['name'],
+                'lat'          => $loc['lat'],
+                'lon'          => $loc['lon'],
+                'station'      => $loc['station'],
+                'station_name' => $loc['station_name'] ?? $loc['station'],
+                'missing_days' => $missing,
+                // Tom serie må bli {} i JSON (ikke []) så frontend kan bruke Object.keys
+                'series'       => $series === [] ? new stdClass() : $series,
+            ];
+            $days         = max($days, count($series));
+            $missingCount = max($missingCount, count($missing));
+        }
+
+        // Atomisk skriving — api.php leser filen samtidig
+        $tmp = $file . '.tmp.' . getmypid();
+        file_put_contents($tmp, json_encode($out, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE), LOCK_EX);
+        rename($tmp, $file);
+
+        return [
+            'season'  => $season ? "{$season['start']} → {$season['end']}" : 'utenfor sesong',
+            'days'    => $days,
+            'missing' => $missingCount,
+        ];
+    }
+
     // ── Metadata ──────────────────────────────────────────────────────────────
     public function loadMetadata(): array
     {
@@ -1235,6 +1409,7 @@ JS;
             's1_downloaded' => 0, 's1_skipped' => 0, 's1_errors' => [],
             'landsat_downloaded' => 0, 'landsat_skipped' => 0, 'landsat_errors' => [],
             's3_downloaded' => 0, 's3_skipped' => 0, 's3_errors' => [],
+            'km_updated'    => false, 'km_errors' => [],
         ];
 
         $dates = $this->searchDates($startDate, $endDate);
@@ -1544,6 +1719,20 @@ JS;
             }
         }
 
+        // ── Kuldemengde (kun når kuldemengde_enabled === true) ───────────────
+        // Uavhengig av bildepipelinene over — en feilende Frost-kobling
+        // påvirker aldri S2/S1/Landsat/S3.
+        if (($this->config['kuldemengde_enabled'] ?? false) === true) {
+            try {
+                $km = $this->updateKuldemengde();
+                $stats['km_updated'] = true;
+                $this->log("KM OK    {$km['season']}  ({$km['days']} døgn, {$km['missing']} mangler)");
+            } catch (RuntimeException $e) {
+                $stats['km_errors'][] = $e->getMessage();
+                $this->log("KM FEIL  " . $e->getMessage());
+            }
+        }
+
         usort($metadata, fn($a, $b) => strcmp($b['date'], $a['date']));
         $this->saveMetadata($metadata);
 
@@ -1553,7 +1742,10 @@ JS;
         $s1sum = "S1: {$stats['s1_downloaded']} nedlastet / {$stats['s1_skipped']} hoppet over / " . count($stats['s1_errors']) . " feil";
         $lsum  = "Landsat: {$stats['landsat_downloaded']} nedlastet / {$stats['landsat_skipped']} hoppet over / " . count($stats['landsat_errors']) . " feil";
         $s3sum = "S3: {$stats['s3_downloaded']} nedlastet / {$stats['s3_skipped']} hoppet over / " . count($stats['s3_errors']) . " feil";
-        $this->log("=== Ferdig — $s2sum | $s1sum | $lsum | $s3sum | {$stats['deleted']} slettet ===");
+        $kmsum = ($this->config['kuldemengde_enabled'] ?? false)
+            ? ('KM: ' . ($stats['km_updated'] ? 'oppdatert' : 'feilet'))
+            : 'KM: av';
+        $this->log("=== Ferdig — $s2sum | $s1sum | $lsum | $s3sum | $kmsum | {$stats['deleted']} slettet ===");
 
         return $stats;
     }
@@ -1647,6 +1839,24 @@ if (PHP_SAPI === 'cli' && realpath($argv[0]) === __FILE__) {
     }
     $from = $args['from'] ?? null;
     $to   = $args['to']   ?? null;
+
+    // --kuldemengde=YYYY-MM-DD: oppdater kun kuldemengde-filen og avslutt.
+    // Datoen styrer hvilken sesong som hentes — nyttig for testing utenfor
+    // sesong (f.eks. --kuldemengde=2026-02-01 henter vinteren 2025/2026).
+    if (isset($args['kuldemengde'])) {
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $args['kuldemengde'])) {
+            echo "Bruk: php fetch.php --kuldemengde=YYYY-MM-DD\n";
+            exit(1);
+        }
+        try {
+            $km = $fetcher->updateKuldemengde($args['kuldemengde']);
+            echo "Kuldemengde oppdatert: {$km['season']}  ({$km['days']} døgn, {$km['missing']} mangler)\n";
+            exit(0);
+        } catch (RuntimeException $e) {
+            echo "FEIL: " . $e->getMessage() . "\n";
+            exit(1);
+        }
+    }
 
     if (($from && !$to) || (!$from && $to)) {
         echo "Bruk: php fetch.php --from=YYYY-MM-DD --to=YYYY-MM-DD\n";

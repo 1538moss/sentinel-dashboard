@@ -286,6 +286,24 @@ kbd{
       En solvarmet asfaltflate eller åker kan derfor vise en helt annen — ofte mye høyere — temperatur
       enn det som meldes som «dagens temperatur».
     </div>
+    <div class="row">
+      <div class="key">❄ Kuldemengde</div>
+      <div class="desc">
+        Kuldemengde er summen av alle døgnmiddeltemperaturer under 0&nbsp;°C siden 1.&nbsp;oktober —
+        et mål på den samlede kulden gjennom sesongen, og en viktig forutsetning for å vurdere om
+        det kan danne seg stabil, skøytbar is. Klikk <kbd>❄ Kulde</kbd>-knappen i headeren for å vise
+        etiketter på utvalgte steder i Vansjø (foreløpig Lødengfjorden) med akkumulert kuldemengde
+        <strong>per bildedato</strong> — blar du i tidslinjen ser du hvordan kulden bygger seg opp.
+        Etiketten oppgir alltid hvilken dato verdien gjelder («pr. 12. jan»), siden døgnmiddelet
+        publiseres med omtrent ett døgns forsinkelse. Knappen vises kun i sesongen (oktober–mai),
+        og huskes ikke mellom sideinnlastinger.
+      </div>
+    </div>
+    <div class="note">
+      I motsetning til 🌡&nbsp;°C-overlegget er dette <strong>lufttemperatur</strong> målt 2 meter over
+      bakken (samme som YR.no), fra Meteorologisk institutt sin målestasjon på Rygge — ikke
+      satellittmålt overflatetemperatur.
+    </div>
   </section>
 
   <section>
@@ -333,6 +351,9 @@ kbd{
     </div>
     <div class="note">
       <strong>Credit: U.S. Geological Survey.</strong> Landsat-bilder er levert av USGS/NASA og er ikke en del av Copernicus-programmet.
+    </div>
+    <div class="note">
+      Værdata (kuldemengde) fra Meteorologisk institutt (Frost API), lisensiert under CC BY 4.0.
     </div>
   </section>
 

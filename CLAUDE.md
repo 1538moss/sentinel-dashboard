@@ -1,7 +1,7 @@
 # Sentinel Satellite Dashboard
 
 ## Prosjektbeskrivelse
-En webløsning som automatisk henter daglige satellittbilder fra Sentinel-2 (ESA), lagrer dem, og viser dem som et interaktivt fullskjerm-slideshow med datomerking, skydekke-info og tidslinje. I Pro-modus vises i tillegg Sentinel-1 SAR-radar og (bak et eget flagg) Landsat 8-9 optisk (USGS). Bak et eget flagg kan man også slå på et av/på-overlegg med landoverflatetemperatur fra Sentinel-3 (SLSTR LST), vist som et rutenett med fargede temperaturtall oppå det optiske bildet.
+En webløsning som automatisk henter daglige satellittbilder fra Sentinel-2 (ESA), lagrer dem, og viser dem som et interaktivt fullskjerm-slideshow med datomerking, skydekke-info og tidslinje. I Pro-modus vises i tillegg Sentinel-1 SAR-radar og (bak et eget flagg) Landsat 8-9 optisk (USGS). Bak et eget flagg kan man også slå på et av/på-overlegg med landoverflatetemperatur fra Sentinel-3 (SLSTR LST), vist som et rutenett med fargede temperaturtall oppå det optiske bildet. Bak nok et flagg finnes et kuldemengde-overlegg (MET Frost API): stedsbaserte etiketter med akkumulert sum av døgnmiddeltemperaturer under 0 °C gjennom vintersesongen — for å vurdere skøytbar is.
 
 **GitHub:** https://github.com/1538moss/sentinel-dashboard  
 **Produksjon:** https://kart.vansjo.top  
@@ -14,7 +14,7 @@ En webløsning som automatisk henter daglige satellittbilder fra Sentinel-2 (ESA
 | Fil | Rolle |
 |-----|-------|
 | `config.php` | Konfigurasjon — leser hemmeligheter fra `.sentinel.env` utenfor webroot |
-| `fetch.php` | `SentinelFetcher`-klassen — katalogsøk, bildehenting, thumbnail-generering, opprydding. CLI: `php fetch.php [--from=YYYY-MM-DD --to=YYYY-MM-DD]` |
+| `fetch.php` | `SentinelFetcher`-klassen — katalogsøk, bildehenting, thumbnail-generering, opprydding. CLI: `php fetch.php [--from=YYYY-MM-DD --to=YYYY-MM-DD]` eller `php fetch.php --kuldemengde=YYYY-MM-DD` (kun kuldemengde-oppdatering) |
 | `api.php` | REST-endepunkt: `list`, `fetch` (token-beskyttet), `status`, `next` |
 | `index.php` | Frontend — fullskjerm slideshow, tidslinje, zoom/pan, filter, datoflash |
 | `help.php` | Bruksanvisning (lenket fra `?`-knappen i headeren) |
@@ -29,6 +29,7 @@ En webløsning som automatisk henter daglige satellittbilder fra Sentinel-2 (ESA
 | `scripts/deploy.sh` | rsync + Apache reload til produksjonsserver |
 | `scripts/setup_ubuntu.sh` | Engangsoppsett av Ubuntu-server (Apache, PHP, vhost på port 8082) |
 | `data/images.json` | Metadata for alle bilder (dato, skydekke, filnavn, thumbnail, type) |
+| `data/kuldemengde.json` | Kuldemengde-serie per sted for inneværende sesong (skrives av fetch.php, leveres via `?action=list`) |
 | `data/lake_overlay.svg` | SVG-kontur av Vansjø |
 | `images/` | PNG-satellittbilder (`YYYY-MM-DD.png`) |
 | `images/thumbs/` | JPEG-thumbnails 136×136px (`YYYY-MM-DD.jpg`) for tidslinje |
@@ -51,6 +52,7 @@ USGS_USERNAME=...      # EROS-brukernavn, for Landsat (M2M) — se https://ers.c
 USGS_M2M_TOKEN=...
 CDSE_USERNAME=...      # Ekte CDSE-kontopassord (IKKE SH_CLIENT_ID/SECRET), for S3 LST-nedlasting — se avsnitt under
 CDSE_PASSWORD=...      # Kontoen må ikke ha 2FA/TOTP slått på (kjøres uten tilsyn i cron). Bruk anførselstegn ved spesialtegn.
+FROST_CLIENT_ID=...    # MET Frost API (kuldemengde) — gratis klient-ID fra https://frost.met.no/auth/requestCredentials.html
 ```
 
 ### Fetch-token
@@ -83,6 +85,9 @@ CDSE_PASSWORD=...      # Kontoen må ikke ha 2FA/TOTP slått på (kjøres uten t
 'cdse_odata'      => [products_url, download_host, product_type, username, password]  // S3 LST-nedlasting (OData, IKKE Process API)
 's3_lst_enabled'  => true              // slår på S3 LST-henting (krever gdal-bin med netCDF-driver — se eget avsnitt) — live i produksjon
 's3_lst'          => [grid_cell_km, temp_min_c, temp_max_c, font_size_px]
+
+'kuldemengde_enabled' => false         // slår på kuldemengde-henting (krever FROST_CLIENT_ID) — se eget avsnitt
+'frost'           => [client_id, base_url, element, season_start, season_end, data_file, locations]
 ```
 
 OAuth2-klient opprettes på: https://shapps.dataspace.copernicus.eu/dashboard/#/account/settings  
@@ -94,7 +99,7 @@ OAuth2-klient opprettes på: https://shapps.dataspace.copernicus.eu/dashboard/#/
 
 | Action | Beskrivelse |
 |--------|-------------|
-| `?action=list` | Alle bilder (kun de med fil på disk + kart-oppføringer) |
+| `?action=list` | Alle bilder (kun de med fil på disk + kart-oppføringer) + `kuldemengde`-nøkkel med innholdet i `data/kuldemengde.json` (null når flagget er av) |
 | `?action=fetch` | Henter nye bilder fra Copernicus — krever POST med `token` i body, rate-limitet til én kjøring per 10. min |
 | `?action=status` | Antall ekte bilder, AOI-info, om credentials er satt, nyeste S2-bilde (S1/Landsat/S3 hoppes over) |
 | `?action=next` | Sjekker om nyere bilde er tilgjengelig i katalogen, eller estimerer neste dato — svaret caches i 15 min (`data/next_cache.json`) |
@@ -114,6 +119,7 @@ OAuth2-klient opprettes på: https://shapps.dataspace.copernicus.eu/dashboard/#/
 8. Dager uten satellittdata får `type: "map"` i metadata
 9. Når `landsat_enabled` er `true`: samme flyt for Landsat 8-9 via USGS M2M (se eget avsnitt under), uavhengig av S2/S1 — en feilende M2M-kobling logges og hopper over Landsat for hele kjøringen, uten å påvirke S2/S1
 10. Når `s3_lst_enabled` er `true`: uavhengig pipeline for Sentinel-3 LST (se eget avsnitt under) — påvirker aldri S2/S1/Landsat om noe feiler
+11. Når `kuldemengde_enabled` er `true`: uavhengig Frost-oppdatering av `data/kuldemengde.json` (se eget avsnitt under) — påvirker aldri bildepipelinene om noe feiler
 
 ---
 
@@ -173,6 +179,19 @@ Lagres som `images/YYYY-MM-DD-s3lst.png` + thumbnail, metadata med `sensor: "S3"
 
 ---
 
+## Kuldemengde (MET Frost API) — bak `kuldemengde_enabled`-flagget
+
+Av/på-overlegg med **stedsbaserte etiketter** (ikke rutenett) — kuldemengde er summen av alle døgnmiddeltemperaturer under 0 °C siden sesongstart (1. oktober), en indikator for skøytbar is. Vansjø er for stort for én felles verdi, så hvert sted i `frost.locations` (navn, lat/lon, målestasjon — foreløpig kun Lødengfjorden) får sin egen papirboks-etikett plassert på riktig geografisk punkt i bildet: `left% = (lon−west)/(east−west)`, `top% = (north−lat)/(north−south)` — fungerer fordi `.img-frame` krymper rundt det kvadratiske bildet.
+
+- **Kilde**: `mean(air_temperature P1D)` fra `frost.met.no/observations/v0.jsonld`, HTTP Basic med klient-ID som brukernavn og tomt passord. `timeoffsets=PT0H` bes om eksplisitt (elementet finnes ofte også som PT6H-klimadøgn → duplikater); HTTP 412 → retry uten filter og dedup i PHP (PT0H foretrekkes). `qualityCode >= 6` forkastes.
+- **Sesonglogikk** (`kmSeasonFor()`): okt–des → sesong som starter samme år, jan–mai → forrige år, jun–sep → utenfor sesong. Utenfor sesong skrives en tom `locations`-serie **uten** Frost-kall, og frontend skjuler ❄-knappen — den selvaktiveres etter første cron-kjøring på/etter 1. oktober.
+- **Frost-lag**: døgnmiddel publiseres med ~1 døgns forsinkelse, så frontend bruker nyeste serieoppføring ≤ slidedatoen og skriver alltid gjeldende dato i etiketten («pr. 12. jan»). Manglende døgn bidrar 0 til summen og listes i `missing_days`.
+- **Idempotent**: `updateKuldemengde()` regenererer hele `data/kuldemengde.json` (atomisk temp+rename) per kjøring — ett Frost-kall per unik stasjon, uansett antall steder. Fanger også opp Frost sine retroaktive korreksjoner.
+- **CLI**: `php fetch.php --kuldemengde=YYYY-MM-DD` oppdaterer kun kuldemengde-filen — datoen styrer hvilken sesong som hentes (nyttig for testing om sommeren: `--kuldemengde=2026-02-01` henter vinteren 2025/2026).
+- **Attribusjon**: «Værdata fra Meteorologisk institutt (Frost API), CC BY 4.0» i `help.php`. Viktig presisering der: dette er **lufttemperatur** 2 m over bakken (samme som YR) — i motsetning til LST-overlegget.
+
+---
+
 ## Frontend (`index.php`)
 
 | Funksjon | Detalj |
@@ -186,6 +205,7 @@ Lagres som `images/YYYY-MM-DD-s3lst.png` + thumbnail, metadata med `sensor: "S3"
 | Neste bilde | Klart-badge vises i header når nytt bilde er tilgjengelig (ingen estimert-dato lenger) |
 | Landsat-fallback (Std) | I Std-modus (ikke Pro): mangler S2-bilde for en dato, men finnes Landsat-bilde for samme dato → vises Landsat-bildet i hovedvisningen i stedet for kart, merket «Landsat (erstatning)» + USGS-kreditering. Pro-modus er upåvirket (viser alltid egen Landsat-panel uavhengig av S2). |
 | LST-overlegg | `🌡 °C`-knapp (kun synlig når `s3_lst_enabled`) slår av/på et rutenett med fargede temperaturtall (papirfarget bakgrunnsboks per tall + klokkeslett for målingen) oppå S2-bildet — fungerer i både Std- og Pro-modus (Pro-modus sitt "Optisk"-panel), tilstanden nullstilles ved sideinnlasting |
+| Kuldemengde-overlegg | `❄ Kulde`-knapp (rendres når `kuldemengde_enabled`, men vises av JS kun når sesongens serie har data) slår av/på stedsbaserte etiketter med akkumulert kuldemengde per slidedato («❄ Lødengfjorden −47,3 °C·døgn (pr. 12. jan)») — plassert på stedets koordinat, skjules ved zoom, nullstilles ved sideinnlasting |
 | Mobil | Forenklet header under 640px |
 
 ### Tastaturnavigasjon

@@ -32,6 +32,7 @@
   --violet:#5F4494;     /* radar/PRO */
   --landsat:#B5651D;    /* Landsat/USGS — brent oransje */
   --thermal:#C1440E;    /* LST-temperaturoverlegg (Sentinel-3) */
+  --frost:#2E6E8E;      /* kuldemengde (MET Frost) — isblå */
   --accent:var(--blue);
   --font-mono:'IBM Plex Mono','Cascadia Code',Consolas,monospace;
   --font-display:'Big Shoulders Display','Arial Narrow',Impact,sans-serif;
@@ -63,16 +64,17 @@ html,body{height:100%;overflow:hidden;background:var(--paper);color:var(--ink)}
   font-family:var(--font-mono);font-size:11px;color:var(--muted);
 }
 #counter{color:var(--ink);letter-spacing:.08em}
-.fetch-btn,.filter-btn,.lst-btn{
+.fetch-btn,.filter-btn,.lst-btn,.frost-btn{
   background:transparent;border:1px solid var(--ink);color:var(--ink);
   padding:6px 12px;font-size:10px;letter-spacing:.18em;text-transform:uppercase;
   font-family:var(--font-mono);cursor:pointer;
   transition:background .15s,color .15s,border-color .15s;
 }
-.fetch-btn:hover,.filter-btn:hover,.lst-btn:hover{background:var(--ink);color:var(--paper)}
+.fetch-btn:hover,.filter-btn:hover,.lst-btn:hover,.frost-btn:hover{background:var(--ink);color:var(--paper)}
 .fetch-btn:disabled{opacity:.4;cursor:not-allowed;background:transparent;color:var(--ink)}
 .filter-btn.active{background:var(--accent);border-color:var(--accent);color:var(--paper)}
 .lst-btn.active{background:var(--thermal);border-color:var(--thermal);color:var(--paper)}
+.frost-btn.active{background:var(--frost);border-color:var(--frost);color:var(--paper)}
 .help-btn{
   background:transparent;border:1px solid var(--ink);color:var(--ink);
   width:29px;height:29px;display:flex;align-items:center;justify-content:center;
@@ -81,6 +83,7 @@ html,body{height:100%;overflow:hidden;background:var(--paper);color:var(--ink)}
 }
 .help-btn:hover{background:var(--ink);color:var(--paper)}
 .fetch-btn:focus-visible,.filter-btn:focus-visible,.pro-btn:focus-visible,.lst-btn:focus-visible,
+.frost-btn:focus-visible,
 .help-btn:focus-visible,.nav:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .next-badge{
   font-family:var(--font-mono);font-size:10px;letter-spacing:.06em;
@@ -128,7 +131,7 @@ html,body{height:100%;overflow:hidden;background:var(--paper);color:var(--ink)}
 }
 .img-frame.zoomed{overflow:hidden}
 .img-frame.zoomed img{cursor:grab;user-select:none}
-.img-frame.zoomed .lake-overlay,.img-frame.zoomed .lst-overlay{display:none}
+.img-frame.zoomed .lake-overlay,.img-frame.zoomed .lst-overlay,.img-frame.zoomed .km-label{display:none}
 .lake-overlay{
   position:absolute;inset:0;
   width:100%;height:100%;
@@ -148,6 +151,16 @@ html,body{height:100%;overflow:hidden;background:var(--paper);color:var(--ink)}
   transition:opacity .3s;
 }
 body.lst-on .lst-overlay{opacity:1}
+/* Kuldemengde-etiketter (MET Frost) — av/på via frost-btn, én per sted i
+   frost.locations, plassert med prosent direkte fra AOI-koordinatene */
+.km-label{
+  position:absolute;transform:translate(-50%,-50%);z-index:5;display:none;
+  font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;
+  color:var(--ink);background:rgba(231,227,214,.92);
+  border:1px solid var(--ink);padding:4px 8px;
+  pointer-events:none;white-space:nowrap;
+}
+body.km-on .km-label{display:block}
 .img-frame.zoomed img.panning{cursor:grabbing}
 
 /* Kart-only slide (ingen satellittdata) */
@@ -322,7 +335,8 @@ body.lst-on .lst-overlay{opacity:1}
   .next-badge{display:none}
   #counter{display:none}
   .hdr-right{gap:8px}
-  .fetch-btn,.filter-btn,.lst-btn{padding:5px 8px;font-size:9px;letter-spacing:.1em}
+  .fetch-btn,.filter-btn,.lst-btn,.frost-btn{padding:5px 8px;font-size:9px;letter-spacing:.1em}
+  .km-label{font-size:9px;padding:3px 6px}
   .info-bar{padding:0 12px;gap:12px}
   .info-bar-date{font-size:18px}
   .info-bar-meta{gap:10px;font-size:9px}
@@ -478,6 +492,13 @@ body.pro-mode{
       🌡 °C
     </button>
     <?php endif; ?>
+    <?php if ($cfg['kuldemengde_enabled'] ?? false): ?>
+    <!-- Starter skjult — JS viser knappen kun når kuldemengde-serien har data (i sesong) -->
+    <button class="frost-btn" id="frost-btn" onclick="toggleKmOverlay()" style="display:none"
+            title="Vis kuldemengde (sum av døgnmiddeltemperaturer under 0 °C siden 1. oktober)">
+      ❄ Kulde
+    </button>
+    <?php endif; ?>
     <button class="fetch-btn" id="fetch-btn" onclick="triggerFetch()" title="Hent nye bilder fra Copernicus">
       ↓ Hent
     </button>
@@ -514,6 +535,7 @@ const FETCH_TOKEN = <?= json_encode($cfg['fetch_token'] ?? '') ?>;
 const AOI = <?= json_encode($cfg['aoi'] ?? null) ?>;
 const LANDSAT_ENABLED = <?= json_encode($cfg['landsat_enabled'] ?? false) ?>;
 const S3_LST_ENABLED = <?= json_encode($cfg['s3_lst_enabled'] ?? false) ?>;
+const KULDEMENGDE_ENABLED = <?= json_encode($cfg['kuldemengde_enabled'] ?? false) ?>;
 let allImages = [];
 let primaryImages = [];
 let s1ByDate = {};
@@ -524,6 +546,8 @@ let idx = 0;
 let flashTimer = null;
 let filterActive = false;
 let lstOverlayActive = false; // ikke lagret i localStorage — nullstilles ved hver sideinnlasting
+let kmActive = false;         // kuldemengde-overlegg — heller ikke persistert
+let kmLocations = [];         // steder med ikke-tom kuldemengde-serie (fra ?action=list)
 let proMode = localStorage.getItem('proMode') === '1';
 
 // ── Data ────────────────────────────────────────────────────────────────────
@@ -546,6 +570,14 @@ async function loadImages() {
       else if (img.sensor === 'S3' || img.type === 'lst') s3ByDate[img.date] = img;
       else primaryImages.push(img);
     }
+    // Kuldemengde: kun steder med data i sesongens serie — utenfor sesong er
+    // seriene tomme og ❄-knappen forblir skjult
+    kmLocations = ((KULDEMENGDE_ENABLED && data.kuldemengde?.locations) || [])
+      .map(l => ({ ...l, dates: Object.keys(l.series || {}).sort() }))
+      .filter(l => l.dates.length > 0);
+    const frostBtn = document.getElementById('frost-btn');
+    if (frostBtn) frostBtn.style.display = kmLocations.length ? '' : 'none';
+
     images = filterActive ? applyFilter(primaryImages) : primaryImages;
 
     if (images.length === 0) {
@@ -635,6 +667,13 @@ function toggleLstOverlay() {
   document.body.classList.toggle('lst-on', lstOverlayActive);
 }
 
+// ── Kuldemengde-overlegg (MET Frost) ─────────────────────────────────────────
+function toggleKmOverlay() {
+  kmActive = !kmActive;
+  document.getElementById('frost-btn').classList.toggle('active', kmActive);
+  document.body.classList.toggle('km-on', kmActive);
+}
+
 // ── Pro mode toggle ──────────────────────────────────────────────────────────
 function toggleProMode() {
   proMode = !proMode;
@@ -676,6 +715,28 @@ function addCoords(frame) {
   frame.append(tl, br);
 }
 
+// Kuldemengde-etiketter: én papirboks per sted, plassert på stedets koordinat.
+// Bruker nyeste serieoppføring ≤ slidedatoen (Frost publiserer døgnmiddel med
+// ~1 døgns forsinkelse), og skriver alltid hvilken dato verdien gjelder.
+function buildKmLabels(date) {
+  if (!KULDEMENGDE_ENABLED || !date || !AOI || !kmLocations.length) return [];
+  const labels = [];
+  for (const loc of kmLocations) {
+    let key = null;
+    for (const d of loc.dates) { if (d <= date) key = d; else break; }
+    if (!key) continue;   // slidedato før sesongstart
+    const km  = loc.series[key].km;
+    const val = km === 0 ? '0,0' : '−' + Math.abs(km).toFixed(1).replace('.', ',');
+    const lbl = document.createElement('div');
+    lbl.className   = 'km-label';
+    lbl.style.left  = (100 * (loc.lon - AOI.west) / (AOI.east - AOI.west)) + '%';
+    lbl.style.top   = (100 * (AOI.north - loc.lat) / (AOI.north - AOI.south)) + '%';
+    lbl.textContent = `❄ ${loc.name} ${val} °C·døgn (pr. ${formatDateShortNo(key)})`;
+    labels.push(lbl);
+  }
+  return labels;
+}
+
 function buildNoDataFrame(label, date) {
   const frame = document.createElement('div');
   frame.className = 'img-frame map-only';
@@ -703,6 +764,7 @@ function buildNoDataFrame(label, date) {
       frame.appendChild(ov);
     }
   }
+  for (const lbl of buildKmLabels(date)) frame.appendChild(lbl);
   return frame;
 }
 
@@ -749,6 +811,7 @@ function buildImgFrame(img, i) {
       frame.appendChild(ov);
     }
   }
+  for (const lbl of buildKmLabels(img.date)) frame.appendChild(lbl);
   return frame;
 }
 
@@ -1183,6 +1246,12 @@ function formatDate(dateStr) {
 function formatDateShort(dateStr) {
   const [y, m, d] = dateStr.split('-');
   return `${d}.${m}.${y.slice(2)}`;
+}
+
+function formatDateShortNo(dateStr) {   // "2026-01-12" → "12. jan"
+  const m = ['jan','feb','mar','apr','mai','jun','jul','aug','sep','okt','nov','des'];
+  const [, mo, d] = dateStr.split('-');
+  return `${parseInt(d)}. ${m[parseInt(mo) - 1]}`;
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────

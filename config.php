@@ -73,6 +73,25 @@ return [
         'font_size_px' => 16,
     ],
 
+    // ── Kuldemengde (MET Norge Frost API) — bak kuldemengde_enabled-flagget ──
+    // Sum av alle døgnmiddeltemperaturer under 0 °C siden sesongstart, per sted.
+    // Vises som av/på-etiketter (❄-knapp) plassert på riktig punkt i bildet.
+    // Vansjø er for stort for én felles verdi — hvert sted i locations får sin
+    // egen etikett (og kan senere få sin egen målestasjon). Se CLAUDE.md.
+    'kuldemengde_enabled' => false,   // true når FROST_CLIENT_ID er satt i .sentinel.env
+    'frost' => [
+        'client_id'    => $env['FROST_CLIENT_ID'] ?? '',
+        'base_url'     => 'https://frost.met.no/observations/v0.jsonld',
+        'element'      => 'mean(air_temperature P1D)',
+        'season_start' => '10-01',    // MM-DD — kuldemengden nullstilles her
+        'season_end'   => '05-31',    // MM-DD — jun–sep er utenfor sesong
+        'data_file'    => __DIR__ . '/data/kuldemengde.json',
+        'locations'    => [
+            ['name' => 'Lødengfjorden', 'lat' => 59.41, 'lon' => 10.83,
+             'station' => 'SN17150', 'station_name' => 'Rygge'],
+        ],
+    ],
+
     // ── Geografisk område (WGS84) ────────────────────────────────────────────
     'aoi' => [
         'west'  => 10.60,
