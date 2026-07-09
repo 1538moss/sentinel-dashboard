@@ -78,7 +78,7 @@ return [
     // Vises som av/på-etiketter (❄-knapp) plassert på riktig punkt i bildet.
     // Vansjø er for stort for én felles verdi — hvert sted i locations får sin
     // egen etikett (og kan senere få sin egen målestasjon). Se CLAUDE.md.
-    'kuldemengde_enabled' => false,   // true når FROST_CLIENT_ID er satt i .sentinel.env
+    'kuldemengde_enabled' => true,    // krever FROST_CLIENT_ID i .sentinel.env — live i produksjon
     'frost' => [
         'client_id'    => $env['FROST_CLIENT_ID'] ?? '',
         'base_url'     => 'https://frost.met.no/observations/v0.jsonld',

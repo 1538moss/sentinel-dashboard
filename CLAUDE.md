@@ -86,7 +86,7 @@ FROST_CLIENT_ID=...    # MET Frost API (kuldemengde) — gratis klient-ID fra ht
 's3_lst_enabled'  => true              // slår på S3 LST-henting (krever gdal-bin med netCDF-driver — se eget avsnitt) — live i produksjon
 's3_lst'          => [grid_cell_km, temp_min_c, temp_max_c, font_size_px]
 
-'kuldemengde_enabled' => false         // slår på kuldemengde-henting (krever FROST_CLIENT_ID) — se eget avsnitt
+'kuldemengde_enabled' => true          // slår på kuldemengde-henting (krever FROST_CLIENT_ID) — live i produksjon
 'frost'           => [client_id, base_url, element, season_start, season_end, data_file, locations]
 ```
 
