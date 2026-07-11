@@ -296,14 +296,15 @@ kbd{
         det kan danne seg stabil, skøytbar is. Klikk <kbd>❄ Kulde</kbd>-knappen i headeren for å vise etiketter på utvalgte
         steder i Vansjø (Lødengfjorden, Borgebunn og Amundbukta) med akkumulert kuldemengde
         <strong>per bildedato</strong> — blar du i tidslinjen ser du hvordan kulden bygger seg opp.
-        Etiketten viser «trengs/målt», f.eks. «23/47,3»: første tall er kuldemengden stedet trenger
-        før isen erfaringsmessig er skøytbar, andre tall er målt kuldemengde — <strong>grønt</strong>
-        når terskelen er passert, <strong>oransje</strong> når det gjenstår 5&nbsp;°C·døgn eller
-        mindre, <strong>rødt</strong> ellers. Et lite trafikklys-skilt i boksen lyser med samme
-        farge, så statusen kan leses på avstand. Etiketten oppgir alltid hvilken dato
-        verdien gjelder («pr. 12. jan»), siden døgnmiddelet publiseres med omtrent ett døgns
-        forsinkelse. Knappen vises kun i sesongen (oktober–mai), og huskes ikke mellom
-        sideinnlastinger.
+        Etiketten viser stedsnavnet og «trengs/målt» med store tall, f.eks. «23/47,3»: første tall
+        er kuldemengden stedet trenger før isen erfaringsmessig er skøytbar, andre tall er målt
+        kuldemengde — tallene er <strong>grønne</strong> når terskelen er passert,
+        <strong>oransje</strong> når det gjenstår 5&nbsp;°C·døgn eller mindre,
+        <strong>røde</strong> ellers, så statusen kan leses på avstand. Klikk på etiketten for å
+        åpne en graf over kuldemengdens utvikling gjennom sesongen (fra 1.&nbsp;oktober), med
+        terskelen markert som stiplet rød linje. Døgnmiddelet publiseres
+        med omtrent ett døgns forsinkelse, så verdien kan gjelde dagen før slidedatoen.
+        Knappen vises kun i sesongen (oktober–mai), og huskes ikke mellom sideinnlastinger.
       </div>
     </div>
     <div class="note">

@@ -155,24 +155,61 @@ body.lst-on .lst-overlay{opacity:1}
    frost.locations, plassert med prosent direkte fra AOI-koordinatene */
 .km-label{
   position:absolute;transform:translate(-50%,-50%);z-index:5;display:none;
-  align-items:center;gap:7px;
+  align-items:center;
   font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;
-  color:var(--ink);background:rgba(231,227,214,.92);
-  border:1px solid var(--ink);padding:4px 8px;
-  pointer-events:none;white-space:nowrap;text-align:left;
+  color:var(--ink);background:rgba(255,255,255,.55);
+  padding:4px 8px;
+  cursor:pointer;white-space:nowrap;text-align:left;
 }
-.km-label .km-ok{color:var(--green);font-weight:700}
-.km-label .km-warn{color:var(--ochre);font-weight:700}
-.km-label .km-low{color:var(--red);font-weight:700}
-/* Trafikklys-skilt: mørkt hus, kun gjeldende lampe lyser — grønn = terskel
-   passert, oransje = mindre enn KM_WARN_MARGIN unna, rød = lenger unna */
-.km-light svg{display:block}
-.km-light rect{fill:var(--ink)}
-.km-light circle{fill:rgba(231,227,214,.25)}
-.km-light.km-ok .lamp-g{fill:#2F9E57}
-.km-light.km-warn .lamp-y{fill:#DD9A1C}
-.km-light.km-low .lamp-r{fill:#D0453A}
+/* Statusfarge på trengs/målt-tallene: grønn = terskel passert, oransje =
+   mindre enn KM_WARN_MARGIN unna, rød = lenger unna. Lysere varianter enn
+   papir-paletten (--green/--ochre/--red), siden bunnen her er mørk. */
+.km-label .km-val{
+  font-size:20px;font-weight:700;letter-spacing:.04em;line-height:1.15;
+  /* svart kontur rundt tallene — åtte retninger for jevn strek */
+  text-shadow:-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000,
+              0 -1px 0 #000,0 1px 0 #000,-1px 0 0 #000,1px 0 0 #000;
+}
+.km-label .km-ok{color:#2F9E57}
+.km-label .km-warn{color:#DD9A1C}
+.km-label .km-low{color:#B7382E}
 body.km-on .km-label{display:flex}
+/* Kuldemengde-graf: modal med 30-dagers serie, åpnes ved klikk på etiketten */
+.km-modal-backdrop{
+  position:fixed;inset:0;z-index:100;background:rgba(25,26,28,.55);
+  display:flex;align-items:center;justify-content:center;
+}
+.km-modal{
+  position:relative;width:min(92vw,560px);
+  background:var(--paper);border:1px solid var(--ink);
+  padding:16px 18px 12px;font-family:var(--font-mono);
+}
+.km-modal h3{
+  margin:0 0 2px;font-family:var(--font-mono);font-weight:700;
+  font-size:13px;letter-spacing:.14em;text-transform:uppercase;
+}
+.km-modal .km-modal-sub{font-size:10px;letter-spacing:.08em;color:var(--muted);margin-bottom:10px}
+.km-modal-close{
+  position:absolute;top:10px;right:10px;width:26px;height:26px;
+  background:none;border:1px solid var(--ink);color:var(--ink);
+  font-family:var(--font-mono);font-size:14px;line-height:1;cursor:pointer;
+}
+.km-modal-close:hover{background:var(--paper-2)}
+.km-chart{display:block;width:100%;height:auto}
+.km-chart .grid{stroke:var(--hair);stroke-width:1}
+.km-chart .axis-lbl{fill:var(--muted);font-family:var(--font-mono);font-size:9px;letter-spacing:.05em}
+.km-chart .series{fill:none;stroke:var(--frost);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.km-chart .thresh{stroke:var(--red);stroke-width:1.5;stroke-dasharray:5 4}
+.km-chart .thresh-lbl{fill:var(--red);font-family:var(--font-mono);font-size:9px;letter-spacing:.05em}
+.km-chart .end-dot{fill:var(--frost)}
+.km-chart .end-lbl{fill:var(--ink);font-family:var(--font-mono);font-size:10px;font-weight:700;letter-spacing:.05em}
+.km-chart .xhair{stroke:var(--line);stroke-width:1;opacity:.6}
+.km-chart .hover-dot{fill:var(--frost);stroke:var(--paper);stroke-width:2}
+.km-tip{
+  position:absolute;display:none;pointer-events:none;
+  background:var(--ink);color:var(--paper);
+  font-size:10px;letter-spacing:.05em;padding:3px 7px;white-space:nowrap;
+}
 .img-frame.zoomed img.panning{cursor:grabbing}
 
 /* Kart-only slide (ingen satellittdata) */
@@ -348,8 +385,8 @@ body.km-on .km-label{display:flex}
   #counter{display:none}
   .hdr-right{gap:8px}
   .fetch-btn,.filter-btn,.lst-btn,.frost-btn{padding:5px 8px;font-size:9px;letter-spacing:.1em}
-  .km-label{font-size:9px;padding:3px 6px;gap:5px}
-  .km-light svg{width:9px;height:20px}
+  .km-label{font-size:9px;padding:3px 6px}
+  .km-label .km-val{font-size:14px}
   .info-bar{padding:0 12px;gap:12px}
   .info-bar-date{font-size:18px}
   .info-bar-meta{gap:10px;font-size:9px}
@@ -549,7 +586,7 @@ const AOI = <?= json_encode($cfg['aoi'] ?? null) ?>;
 const LANDSAT_ENABLED = <?= json_encode($cfg['landsat_enabled'] ?? false) ?>;
 const S3_LST_ENABLED = <?= json_encode($cfg['s3_lst_enabled'] ?? false) ?>;
 const KULDEMENGDE_ENABLED = <?= json_encode($cfg['kuldemengde_enabled'] ?? false) ?>;
-const KM_WARN_MARGIN = 5;     // °C·døgn under terskelen → oransje trafikklys
+const KM_WARN_MARGIN = 5;     // °C·døgn under terskelen → oransje tall
 let allImages = [];
 let primaryImages = [];
 let s1ByDate = {};
@@ -729,13 +766,12 @@ function addCoords(frame) {
   frame.append(tl, br);
 }
 
-// Kuldemengde-etiketter: én papirboks per sted, plassert på stedets koordinat.
-// Bruker nyeste serieoppføring ≤ slidedatoen (Frost publiserer døgnmiddel med
-// ~1 døgns forsinkelse), og skriver alltid hvilken dato verdien gjelder.
-// To linjer: stedsnavn, så «trengs/målt» — målt tall grønt når kuldemengden
-// har passert stedets skøytbar-is-terskel (km_needed), oransje når den er
-// mindre enn KM_WARN_MARGIN unna, ellers rødt. Et lite trafikklys-skilt til
-// venstre i boksen lyser med samme status.
+// Kuldemengde-etiketter: én etikett per sted (hvit gjennomsiktig bakgrunn),
+// plassert på stedets koordinat. Bruker nyeste serieoppføring ≤ slidedatoen
+// (Frost publiserer døgnmiddel med ~1 døgns forsinkelse).
+// To linjer: stedsnavn, så «trengs/målt» med store tall i statusfargen —
+// grønt når kuldemengden har passert stedets skøytbar-is-terskel (km_needed),
+// oransje når den er mindre enn KM_WARN_MARGIN unna, ellers rødt.
 function buildKmLabels(date) {
   if (!KULDEMENGDE_ENABLED || !date || !AOI || !kmLocations.length) return [];
   const labels = [];
@@ -758,29 +794,136 @@ function buildKmLabels(date) {
       const state = km > loc.km_needed ? 'km-ok'
                   : loc.km_needed - km <= KM_WARN_MARGIN ? 'km-warn'
                   : 'km-low';
-      const light = document.createElement('span');
-      light.className = 'km-light ' + state;
-      light.innerHTML =
-        '<svg viewBox="0 0 12 26" width="12" height="26" aria-hidden="true">' +
-        '<rect x="0.5" y="0.5" width="11" height="25" rx="2.5"/>' +
-        '<circle class="lamp-r" cx="6" cy="5.5" r="3"/>' +
-        '<circle class="lamp-y" cx="6" cy="13" r="3"/>' +
-        '<circle class="lamp-g" cx="6" cy="20.5" r="3"/></svg>';
-      lbl.appendChild(light);
-      valEl.append(`${loc.km_needed}/`);
-      const num = document.createElement('span');
-      num.className   = state;
-      num.textContent = kmStr;
-      valEl.append(num, ` (pr. ${formatDateShortNo(key)})`);
+      valEl.classList.add(state);
+      valEl.textContent = `${loc.km_needed}/${kmStr}`;
     } else {
-      valEl.textContent = `${kmStr} °C·døgn (pr. ${formatDateShortNo(key)})`;
+      valEl.textContent = `${kmStr} °C·døgn`;
     }
     const txt = document.createElement('div');
     txt.append(nameEl, valEl);
     lbl.appendChild(txt);
+    lbl.title = 'Vis kuldemengde-graf for sesongen';
+    lbl.addEventListener('click', e => { e.stopPropagation(); openKmChart(loc, key); });
     labels.push(lbl);
   }
   return labels;
+}
+
+// Kuldemengde-graf: klikk på en etikett åpner en modal med stedets serie for
+// hele sesongen (fra 1. oktober) t.o.m. etikettens dato — linje i frost-blått,
+// stiplet rød terskellinje («trengs N»), krysshår + tooltip ved hover. Lukkes
+// med ×, klikk utenfor eller Escape.
+function openKmChart(loc, endKey) {
+  const pts = loc.dates
+    .filter(d => d <= endKey)
+    .map(d => ({ d, km: loc.series[d].km }));
+  if (!pts.length) return;
+  const startKey = pts[0].d;
+  const start = new Date(startKey + 'T00:00:00Z');
+  const end   = new Date(endKey + 'T00:00:00Z');
+
+  const W = 520, H = 240, ML = 36, MR = 14, MT = 12, MB = 24;
+  const iw = W - ML - MR, ih = H - MT - MB;
+  const t0 = start.getTime(), t1 = end.getTime();
+  // rundes opp til nærmeste pene 4-delelige akseskala (ticks på 1/4-punktene)
+  const rawMax = Math.max(Math.max(...pts.map(p => p.km)), loc.km_needed ?? 0, 5) * 1.05;
+  const tq     = rawMax / 4, tp = Math.pow(10, Math.floor(Math.log10(tq)));
+  const step   = tp * [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].find(m => m * tp >= tq);
+  const yMax   = step * 4;
+  const px = d => ML + iw * (new Date(d + 'T00:00:00Z').getTime() - t0) / (t1 - t0);
+  const py = v => MT + ih * (1 - v / yMax);
+  const fmtDM = d => `${d.slice(8,10)}.${d.slice(5,7)}`;
+  const fmtKm = v => v.toFixed(1).replace('.', ',');
+
+  let svg = '';
+  // y-akse: fire hårlinjer med verdi
+  for (let i = 1; i <= 4; i++) {
+    const v = yMax * i / 4, y = py(v);
+    const vLbl = v % 1 ? v.toFixed(1).replace('.', ',') : v;
+    svg += `<line class="grid" x1="${ML}" y1="${y}" x2="${W - MR}" y2="${y}"/>` +
+           `<text class="axis-lbl" x="${ML - 5}" y="${y + 3}" text-anchor="end">${vLbl}</text>`;
+  }
+  svg += `<line class="grid" x1="${ML}" y1="${py(0)}" x2="${W - MR}" y2="${py(0)}"/>`;
+  // x-akse: ukesmerker for korte serier, den 1. i hver måned for hele sesonger
+  if (t1 - t0 <= 45 * 86400e3) {
+    for (let t = t1; t >= t0; t -= 7 * 86400e3) {
+      const d = new Date(t).toISOString().slice(0, 10);
+      svg += `<text class="axis-lbl" x="${px(d)}" y="${H - 8}" text-anchor="middle">${fmtDM(d)}</text>`;
+    }
+  } else {
+    const m = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1));
+    if (m < start) m.setUTCMonth(m.getUTCMonth() + 1);
+    for (; m <= end; m.setUTCMonth(m.getUTCMonth() + 1)) {
+      const d = m.toISOString().slice(0, 10);
+      svg += `<text class="axis-lbl" x="${px(d)}" y="${H - 8}" text-anchor="middle">${fmtDM(d)}</text>`;
+    }
+  }
+  // terskellinje
+  if (loc.km_needed != null && loc.km_needed <= yMax) {
+    const y = py(loc.km_needed);
+    svg += `<line class="thresh" x1="${ML}" y1="${y}" x2="${W - MR}" y2="${y}"/>` +
+           `<text class="thresh-lbl" x="${W - MR}" y="${y - 4}" text-anchor="end">trengs ${loc.km_needed}</text>`;
+  }
+  // serien + endepunkt med verdi
+  svg += `<path class="series" d="${pts.map((p, i) => `${i ? 'L' : 'M'}${px(p.d).toFixed(1)} ${py(p.km).toFixed(1)}`).join(' ')}"/>`;
+  const last = pts[pts.length - 1];
+  svg += `<circle class="end-dot" cx="${px(last.d)}" cy="${py(last.km)}" r="3.5"/>` +
+         `<text class="end-lbl" x="${px(last.d) - 6}" y="${py(last.km) - 8}" text-anchor="end">${fmtKm(last.km)}</text>`;
+  // hover-lag (styres fra mousemove under)
+  svg += `<line class="xhair" y1="${MT}" y2="${MT + ih}" visibility="hidden"/>` +
+         `<circle class="hover-dot" r="4" visibility="hidden"/>`;
+
+  const backdrop = document.createElement('div');
+  backdrop.className = 'km-modal-backdrop';
+  const modal = document.createElement('div');
+  modal.className = 'km-modal';
+  modal.innerHTML =
+    `<button class="km-modal-close" title="Lukk">×</button>` +
+    `<h3>❄ ${loc.name}</h3>` +
+    `<div class="km-modal-sub">Kuldemengde (°C·døgn) ${fmtDM(startKey)}–${fmtDM(endKey)}` +
+    (loc.station_name ? ` · ${loc.station_name}` : '') + `</div>` +
+    `<svg class="km-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Kuldemengde siste 30 dager, ${loc.name}">${svg}</svg>` +
+    `<div class="km-tip"></div>`;
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+
+  const close = () => { document.body.removeChild(backdrop); document.removeEventListener('keydown', onKey, true); };
+  const onKey = e => {
+    if (e.key !== 'Escape') return;
+    e.stopPropagation();   // ikke la Escape også nullstille zoom bak modalen
+    close();
+  };
+  backdrop.addEventListener('click', close);
+  modal.addEventListener('click', e => e.stopPropagation());
+  modal.querySelector('.km-modal-close').addEventListener('click', close);
+  document.addEventListener('keydown', onKey, true);
+
+  // krysshår + tooltip: nærmeste datapunkt langs x
+  const chart = modal.querySelector('.km-chart');
+  const tip   = modal.querySelector('.km-tip');
+  const xhair = chart.querySelector('.xhair');
+  const hdot  = chart.querySelector('.hover-dot');
+  chart.addEventListener('mousemove', e => {
+    const r = chart.getBoundingClientRect();
+    const mx = (e.clientX - r.left) * W / r.width;
+    let best = pts[0], bd = Infinity;
+    for (const p of pts) { const d = Math.abs(px(p.d) - mx); if (d < bd) { bd = d; best = p; } }
+    const cx = px(best.d), cy = py(best.km);
+    xhair.setAttribute('x1', cx); xhair.setAttribute('x2', cx);
+    xhair.removeAttribute('visibility');
+    hdot.setAttribute('cx', cx); hdot.setAttribute('cy', cy);
+    hdot.removeAttribute('visibility');
+    tip.textContent = `${fmtDM(best.d)} · ${fmtKm(best.km)}`;
+    tip.style.display = 'block';
+    const mr = modal.getBoundingClientRect();
+    tip.style.left = Math.min(e.clientX - mr.left + 12, mr.width - tip.offsetWidth - 8) + 'px';
+    tip.style.top  = (e.clientY - mr.top - 28) + 'px';
+  });
+  chart.addEventListener('mouseleave', () => {
+    xhair.setAttribute('visibility', 'hidden');
+    hdot.setAttribute('visibility', 'hidden');
+    tip.style.display = 'none';
+  });
 }
 
 function buildNoDataFrame(label, date) {
@@ -1292,12 +1435,6 @@ function formatDate(dateStr) {
 function formatDateShort(dateStr) {
   const [y, m, d] = dateStr.split('-');
   return `${d}.${m}.${y.slice(2)}`;
-}
-
-function formatDateShortNo(dateStr) {   // "2026-01-12" → "12. jan"
-  const m = ['jan','feb','mar','apr','mai','jun','jul','aug','sep','okt','nov','des'];
-  const [, mo, d] = dateStr.split('-');
-  return `${parseInt(d)}. ${m[parseInt(mo) - 1]}`;
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
