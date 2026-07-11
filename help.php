@@ -308,8 +308,8 @@ kbd{
     </div>
     <div class="note">
       I motsetning til 🌡&nbsp;°C-overlegget er dette <strong>lufttemperatur</strong> målt 2 meter over
-      bakken (samme som YR.no), fra Meteorologisk institutt sin målestasjon på Rygge — ikke
-      satellittmålt overflatetemperatur.
+      bakken (samme som YR.no), fra nærmeste målestasjon (FV120 Rødsund ved Rødsundbrua for
+      Lødengfjorden, Rygge for de øvrige stedene) — ikke satellittmålt overflatetemperatur.
     </div>
   </section>
 

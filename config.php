@@ -90,7 +90,7 @@ return [
         // regnes som skøytbar på stedet — vises som «trengs/målt» i etiketten
         'locations'    => [
             ['name' => 'Lødengfjorden', 'lat' => 59.4857391, 'lon' => 10.7860853,
-             'station' => 'SN17150', 'station_name' => 'Rygge', 'km_needed' => 23],
+             'station' => 'SN17400', 'station_name' => 'FV120 Rødsund', 'km_needed' => 23],
             ['name' => 'Borgebunn', 'lat' => 59.3580611, 'lon' => 10.9224714,
              'station' => 'SN17150', 'station_name' => 'Rygge', 'km_needed' => 61],
             ['name' => 'Amundbukta', 'lat' => 59.3699087, 'lon' => 10.8408080,
