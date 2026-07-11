@@ -341,8 +341,12 @@ class SentinelFetcher
             "Attributes/OData.CSC.StringAttribute/any(att:att/Name eq 'productType' and att/OData.CSC.StringAttribute/Value eq '{$odata['product_type']}') and " .
             "OData.CSC.Intersects(area=geography'SRID=4326;{$polygon}') and " .
             "ContentDate/Start gt {$from}T00:00:00.000Z and ContentDate/Start lt {$to}T23:59:59.000Z";
+        // $top=1000 er CDSE-maks — 100 var for lite (opptil 8 produkter/døgn:
+        // S3A+S3B × dag-/kveldspass × NR/NT ga 125 i et 14-dagersvindu, og med
+        // stigende sortering ble de NYESTE dagene kuttet bort). desc som
+        // belte-og-seler: skulle taket likevel nås, ryker de eldste dagene.
         $url = $odata['products_url'] . '?$filter=' . urlencode($filter) .
-            '&$top=100&$orderby=' . urlencode('ContentDate/Start asc');
+            '&$top=1000&$orderby=' . urlencode('ContentDate/Start desc');
 
         $ch = curl_init($url);
         curl_setopt_array($ch, [
@@ -359,6 +363,11 @@ class SentinelFetcher
         }
 
         $products = json_decode($body, true)['value'] ?? [];
+
+        // Sorter stigende igjen (API-svaret er desc) så dedup-en under beholder
+        // samme preferanse som før: dagens FØRSTE pass (formiddag/dagtemperatur),
+        // oppgradert til NT-variant når den finnes.
+        usort($products, fn($a, $b) => strcmp($a['ContentDate']['Start'], $b['ContentDate']['Start']));
 
         // Dedup: én entry per dato. Hvert overflygning finnes typisk i to varianter —
         // _NR_ (Near Real Time, tilgjengelig raskt) og _NT_ (Non-Time-Critical,
