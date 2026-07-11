@@ -93,6 +93,8 @@ return [
              'station' => 'SN17150', 'station_name' => 'Rygge', 'km_needed' => 23],
             ['name' => 'Borgebunn', 'lat' => 59.3580611, 'lon' => 10.9224714,
              'station' => 'SN17150', 'station_name' => 'Rygge', 'km_needed' => 61],
+            ['name' => 'Amundbukta', 'lat' => 59.3699087, 'lon' => 10.8408080,
+             'station' => 'SN17150', 'station_name' => 'Rygge', 'km_needed' => 50],
         ],
     ],
 

@@ -34,6 +34,13 @@ class SentinelFetcher
         file_put_contents($this->logFile, $entry, FILE_APPEND | LOCK_EX);
     }
 
+    // Blank linje (uten tidsstempel) som visuelt skille mellom kjøringer i loggen
+    private function logRunSeparator(): void
+    {
+        if (PHP_SAPI === 'cli') echo "\n";
+        file_put_contents($this->logFile, "\n", FILE_APPEND | LOCK_EX);
+    }
+
     private function ensureDirectories(): void
     {
         foreach ([$this->config['images_dir'], $this->config['thumbs_dir'], $this->config['data_dir']] as $dir) {
@@ -1363,8 +1370,10 @@ JS;
                 while ($day <= $last) {
                     $d = $day->format('Y-m-d');
                     if (array_key_exists($d, $means)) {
-                        // Kuldemengde regnes som positivt tall: −4 °C-døgn bidrar +4
-                        $sum += max(0.0, -$means[$d]);
+                        // Kuldemengde regnes som positivt tall: −4 °C-døgn bidrar +4.
+                        // Mildvær tærer på isen: +3 °C-døgn trekker fra 3 — men
+                        // kuldemengden kan aldri bli mindre enn null
+                        $sum = max(0.0, $sum - $means[$d]);
                         $series[$d] = ['mean' => round($means[$d], 1), 'km' => round($sum, 1)];
                         if (isset($filled[$d])) {
                             $series[$d]['interpolated'] = true;
@@ -1443,6 +1452,7 @@ JS;
 
     private function _run(string $startDate, string $endDate): array
     {
+        $this->logRunSeparator();
         $this->log("=== Kjøring startet | {$this->config['aoi']['name']} | $startDate → $endDate ===");
 
         $stats = [

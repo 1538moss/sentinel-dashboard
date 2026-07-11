@@ -162,12 +162,15 @@ body.lst-on .lst-overlay{opacity:1}
   pointer-events:none;white-space:nowrap;text-align:left;
 }
 .km-label .km-ok{color:var(--green);font-weight:700}
+.km-label .km-warn{color:var(--ochre);font-weight:700}
 .km-label .km-low{color:var(--red);font-weight:700}
-/* Trafikklys-skilt: mørkt hus, kun gjeldende lampe lyser (grønn = terskel passert) */
+/* Trafikklys-skilt: mørkt hus, kun gjeldende lampe lyser — grønn = terskel
+   passert, oransje = mindre enn KM_WARN_MARGIN unna, rød = lenger unna */
 .km-light svg{display:block}
 .km-light rect{fill:var(--ink)}
 .km-light circle{fill:rgba(231,227,214,.25)}
 .km-light.km-ok .lamp-g{fill:#2F9E57}
+.km-light.km-warn .lamp-y{fill:#DD9A1C}
 .km-light.km-low .lamp-r{fill:#D0453A}
 body.km-on .km-label{display:flex}
 .img-frame.zoomed img.panning{cursor:grabbing}
@@ -546,6 +549,7 @@ const AOI = <?= json_encode($cfg['aoi'] ?? null) ?>;
 const LANDSAT_ENABLED = <?= json_encode($cfg['landsat_enabled'] ?? false) ?>;
 const S3_LST_ENABLED = <?= json_encode($cfg['s3_lst_enabled'] ?? false) ?>;
 const KULDEMENGDE_ENABLED = <?= json_encode($cfg['kuldemengde_enabled'] ?? false) ?>;
+const KM_WARN_MARGIN = 5;     // °C·døgn under terskelen → oransje trafikklys
 let allImages = [];
 let primaryImages = [];
 let s1ByDate = {};
@@ -729,8 +733,9 @@ function addCoords(frame) {
 // Bruker nyeste serieoppføring ≤ slidedatoen (Frost publiserer døgnmiddel med
 // ~1 døgns forsinkelse), og skriver alltid hvilken dato verdien gjelder.
 // To linjer: stedsnavn, så «trengs/målt» — målt tall grønt når kuldemengden
-// har passert stedets skøytbar-is-terskel (km_needed), ellers rødt. Et lite
-// trafikklys-skilt til venstre i boksen lyser med samme status.
+// har passert stedets skøytbar-is-terskel (km_needed), oransje når den er
+// mindre enn KM_WARN_MARGIN unna, ellers rødt. Et lite trafikklys-skilt til
+// venstre i boksen lyser med samme status.
 function buildKmLabels(date) {
   if (!KULDEMENGDE_ENABLED || !date || !AOI || !kmLocations.length) return [];
   const labels = [];
@@ -750,9 +755,11 @@ function buildKmLabels(date) {
     const valEl = document.createElement('div');
     valEl.className = 'km-val';
     if (loc.km_needed != null) {
-      const ok = km > loc.km_needed;
+      const state = km > loc.km_needed ? 'km-ok'
+                  : loc.km_needed - km <= KM_WARN_MARGIN ? 'km-warn'
+                  : 'km-low';
       const light = document.createElement('span');
-      light.className = 'km-light ' + (ok ? 'km-ok' : 'km-low');
+      light.className = 'km-light ' + state;
       light.innerHTML =
         '<svg viewBox="0 0 12 26" width="12" height="26" aria-hidden="true">' +
         '<rect x="0.5" y="0.5" width="11" height="25" rx="2.5"/>' +
@@ -762,7 +769,7 @@ function buildKmLabels(date) {
       lbl.appendChild(light);
       valEl.append(`${loc.km_needed}/`);
       const num = document.createElement('span');
-      num.className   = ok ? 'km-ok' : 'km-low';
+      num.className   = state;
       num.textContent = kmStr;
       valEl.append(num, ` (pr. ${formatDateShortNo(key)})`);
     } else {

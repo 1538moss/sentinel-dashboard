@@ -181,7 +181,7 @@ Lagres som `images/YYYY-MM-DD-s3lst.png` + thumbnail, metadata med `sensor: "S3"
 
 ## Kuldemengde (MET Frost API) — bak `kuldemengde_enabled`-flagget
 
-Av/på-overlegg med **stedsbaserte etiketter** (ikke rutenett) — kuldemengde er summen av alle døgnmiddeltemperaturer under 0 °C siden sesongstart (1. oktober), **regnet som positivt tall** (−4 °C-døgn bidrar +4), en indikator for skøytbar is. Vansjø er for stort for én felles verdi, så hvert sted i `frost.locations` (navn, lat/lon, målestasjon, `km_needed` — Lødengfjorden og Borgebunn, begge på Rygge-stasjonen) får sin egen papirboks-etikett plassert på riktig geografisk punkt i bildet: `left% = (lon−west)/(east−west)`, `top% = (north−lat)/(north−south)` — fungerer fordi `.img-frame` krymper rundt det kvadratiske bildet. Etiketten har to linjer: stedsnavn, så «trengs/målt» (f.eks. «23/47,3») der målt tall er **grønt** når kuldemengden har passert stedets skøytbar-is-terskel `km_needed`, ellers **rødt** — pluss et lite trafikklys-skilt (inline-SVG, mørkt hus, kun gjeldende lampe lyser) til venstre i boksen med samme status.
+Av/på-overlegg med **stedsbaserte etiketter** (ikke rutenett) — kuldemengde er en løpende sum siden sesongstart (1. oktober), **regnet som positivt tall**: kalde døgn bygger opp (−4 °C-døgn bidrar +4), milde døgn tærer (+3 °C-døgn trekker fra 3), men summen **kan aldri gå under null** — en indikator for skøytbar is. Vansjø er for stort for én felles verdi, så hvert sted i `frost.locations` (navn, lat/lon, målestasjon, `km_needed` — Lødengfjorden, Borgebunn og Amundbukta, alle på Rygge-stasjonen) får sin egen papirboks-etikett plassert på riktig geografisk punkt i bildet: `left% = (lon−west)/(east−west)`, `top% = (north−lat)/(north−south)` — fungerer fordi `.img-frame` krymper rundt det kvadratiske bildet. Etiketten har to linjer: stedsnavn, så «trengs/målt» (f.eks. «23/47,3») der målt tall er **grønt** når kuldemengden har passert stedets skøytbar-is-terskel `km_needed`, **oransje** når det gjenstår ≤ 5 °C·døgn (`KM_WARN_MARGIN` i `index.php`), ellers **rødt** — pluss et lite trafikklys-skilt (inline-SVG, mørkt hus, kun gjeldende lampe lyser) til venstre i boksen med samme status.
 
 - **Kilde**: `mean(air_temperature P1D)` fra `frost.met.no/observations/v0.jsonld`, HTTP Basic med klient-ID som brukernavn og tomt passord. `timeoffsets=PT0H` bes om eksplisitt (elementet finnes ofte også som PT6H-klimadøgn → duplikater); HTTP 412 → retry uten filter og dedup i PHP (PT0H foretrekkes). `qualityCode >= 6` forkastes.
 - **Sesonglogikk** (`kmSeasonFor()`): okt–des → sesong som starter samme år, jan–mai → forrige år, jun–sep → utenfor sesong. Utenfor sesong skrives en tom `locations`-serie **uten** Frost-kall, og frontend skjuler ❄-knappen — den selvaktiveres etter første cron-kjøring på/etter 1. oktober.
@@ -205,7 +205,7 @@ Av/på-overlegg med **stedsbaserte etiketter** (ikke rutenett) — kuldemengde e
 | Neste bilde | Klart-badge vises i header når nytt bilde er tilgjengelig (ingen estimert-dato lenger) |
 | Landsat-fallback (Std) | I Std-modus (ikke Pro): mangler S2-bilde for en dato, men finnes Landsat-bilde for samme dato → vises Landsat-bildet i hovedvisningen i stedet for kart, merket «Landsat (erstatning)» + USGS-kreditering. Pro-modus er upåvirket (viser alltid egen Landsat-panel uavhengig av S2). |
 | LST-overlegg | `🌡 °C`-knapp (kun synlig når `s3_lst_enabled`) slår av/på et rutenett med fargede temperaturtall (papirfarget bakgrunnsboks per tall + klokkeslett for målingen) oppå S2-bildet — fungerer i både Std- og Pro-modus (Pro-modus sitt "Optisk"-panel), tilstanden nullstilles ved sideinnlasting |
-| Kuldemengde-overlegg | `❄ Kulde`-knapp (rendres når `kuldemengde_enabled`, men vises av JS kun når sesongens serie har data) slår av/på stedsbaserte etiketter med akkumulert kuldemengde per slidedato — trafikklys-skilt + to linjer: «❄ Lødengfjorden» + «23/47,3 (pr. 12. jan)» der målt tall og trafikklyset er grønt når terskelen `km_needed` er passert, ellers rødt — plassert på stedets koordinat, skjules ved zoom, nullstilles ved sideinnlasting |
+| Kuldemengde-overlegg | `❄ Kulde`-knapp (rendres når `kuldemengde_enabled`, men vises av JS kun når sesongens serie har data) slår av/på stedsbaserte etiketter med akkumulert kuldemengde per slidedato — trafikklys-skilt + to linjer: «❄ Lødengfjorden» + «23/47,3 (pr. 12. jan)» der målt tall og trafikklyset er grønt når terskelen `km_needed` er passert, oransje når ≤ 5 °C·døgn gjenstår, ellers rødt — plassert på stedets koordinat, skjules ved zoom, nullstilles ved sideinnlasting |
 | Mobil | Forenklet header under 640px |
 
 ### Tastaturnavigasjon
@@ -259,8 +259,10 @@ sudo -u www-data php cleanup.php 2026-06-30 2026-07-01
 Registrert i `www-data` sin crontab (`sudo crontab -u www-data -e`), slik at bilder/thumbnails opprettes med samme eierskap som Apache selv — se merknaden under manuell bildeinnhenting.
 
 ```
-0 */6 * * * php /var/www/sentinel/fetch.php >> /var/www/sentinel/data/fetch.log 2>&1
+0 */6 * * * php /var/www/sentinel/fetch.php >/dev/null 2>>/var/www/sentinel/data/fetch.log
 ```
+
+Stdout kastes fordi `log()` i `fetch.php` allerede skriver hver linje til `fetch.log` selv (echo + `>>` ville gitt doble linjer); stderr appendes fortsatt slik at PHP-fatals/warnings utenom `log()` havner i loggen.
 
 Kjører kl. 00, 06, 12, 18. Trygt å kjøre oftere enn én gang daglig — `fetch.php` hopper over datoer som allerede er lastet ned (skip-liste basert på fil-på-disk), så hyppigere kjøring fanger bare opp nye S2/S1/Landsat/S3-scener raskere.
 
