@@ -294,12 +294,12 @@ kbd{
         (et døgn på +3&nbsp;°C trekker fra 3), men kuldemengden kan aldri bli mindre enn null —
         et mål på den samlede kulden gjennom sesongen, og en viktig forutsetning for å vurdere om
         det kan danne seg stabil, skøytbar is. Klikk <kbd>❄ Kulde</kbd>-knappen i headeren for å vise etiketter på utvalgte
-        steder i Vansjø (Lødengfjorden, Borgebunn og Amundbukta) med akkumulert kuldemengde
+        steder i Vansjø (bl.a. Lødengfjorden, Storefjorden, Vanemfjorden og Borgebunn) med akkumulert kuldemengde
         <strong>per bildedato</strong> — blar du i tidslinjen ser du hvordan kulden bygger seg opp.
         Etiketten viser stedsnavnet og «trengs/målt» med store tall, f.eks. «23/47,3»: første tall
         er kuldemengden stedet trenger før isen erfaringsmessig er skøytbar, andre tall er målt
         kuldemengde — tallene er <strong>grønne</strong> når terskelen er passert,
-        <strong>oransje</strong> når det gjenstår 5&nbsp;°C·døgn eller mindre,
+        <strong>oransje</strong> når det gjenstår 5&nbsp;% av terskelen eller mindre,
         <strong>røde</strong> ellers, så statusen kan leses på avstand. Klikk på etiketten for å
         åpne en graf over kuldemengdens utvikling gjennom sesongen (fra 1.&nbsp;oktober), med
         terskelen markert som stiplet rød linje. Døgnmiddelet publiseres

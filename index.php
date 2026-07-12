@@ -162,7 +162,7 @@ body.lst-on .lst-overlay{opacity:1}
   cursor:pointer;white-space:nowrap;text-align:left;
 }
 /* Statusfarge på trengs/målt-tallene: grønn = terskel passert, oransje =
-   mindre enn KM_WARN_MARGIN unna, rød = lenger unna. Lysere varianter enn
+   mindre enn KM_WARN_FRACTION av terskelen unna, rød = lenger unna. Lysere varianter enn
    papir-paletten (--green/--ochre/--red), siden bunnen her er mørk. */
 .km-label .km-val{
   font-size:20px;font-weight:700;letter-spacing:.04em;line-height:1.15;
@@ -586,7 +586,7 @@ const AOI = <?= json_encode($cfg['aoi'] ?? null) ?>;
 const LANDSAT_ENABLED = <?= json_encode($cfg['landsat_enabled'] ?? false) ?>;
 const S3_LST_ENABLED = <?= json_encode($cfg['s3_lst_enabled'] ?? false) ?>;
 const KULDEMENGDE_ENABLED = <?= json_encode($cfg['kuldemengde_enabled'] ?? false) ?>;
-const KM_WARN_MARGIN = 5;     // °C·døgn under terskelen → oransje tall
+const KM_WARN_FRACTION = 0.05;  // andel av terskelen som gjenstår → oransje tall
 let allImages = [];
 let primaryImages = [];
 let s1ByDate = {};
@@ -771,7 +771,7 @@ function addCoords(frame) {
 // (Frost publiserer døgnmiddel med ~1 døgns forsinkelse).
 // To linjer: stedsnavn, så «trengs/målt» med store tall i statusfargen —
 // grønt når kuldemengden har passert stedets skøytbar-is-terskel (km_needed),
-// oransje når den er mindre enn KM_WARN_MARGIN unna, ellers rødt.
+// oransje når den er mindre enn KM_WARN_FRACTION av terskelen unna, ellers rødt.
 function buildKmLabels(date) {
   if (!KULDEMENGDE_ENABLED || !date || !AOI || !kmLocations.length) return [];
   const labels = [];
@@ -792,7 +792,7 @@ function buildKmLabels(date) {
     valEl.className = 'km-val';
     if (loc.km_needed != null) {
       const state = km > loc.km_needed ? 'km-ok'
-                  : loc.km_needed - km <= KM_WARN_MARGIN ? 'km-warn'
+                  : loc.km_needed - km <= loc.km_needed * KM_WARN_FRACTION ? 'km-warn'
                   : 'km-low';
       valEl.classList.add(state);
       valEl.textContent = `${loc.km_needed}/${kmStr}`;
