@@ -85,7 +85,7 @@ bash scripts/deploy.sh
 ### Manuell bildeinnhenting
 
 ```bash
-# Siste 14 dager
+# Siste 7 dager (days_to_search)
 sudo php fetch.php
 
 # Spesifikk periode

@@ -1326,6 +1326,54 @@ JS;
         return [$means, $interpolated];
     }
 
+    // Varslede døgnmiddeltemperaturer fra MET locationforecast → [dato => °C].
+    // Snitt av alle instant-temperaturer per lokal (Europe/Oslo) kalenderdag —
+    // dager med færre enn 4 datapunkter forkastes (halen av varselet kan ha ett
+    // enkelt tidspunkt, som ville gitt et misvisende «døgnmiddel»; nær-dagene
+    // har 24 punkter i timesoppløsning, lengre frem 4 punkter i 6-timers).
+    private function fetchForecastDailyMeans(float $lat, float $lon): array
+    {
+        $frost = $this->config['frost'] ?? [];
+        $url = ($frost['forecast_url'] ?? 'https://api.met.no/weatherapi/locationforecast/2.0/compact')
+             . '?' . http_build_query(['lat' => round($lat, 4), 'lon' => round($lon, 4)]);
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            // MET krever identifiserende User-Agent — anonyme kall avvises med 403
+            CURLOPT_USERAGENT      => $frost['user_agent'] ?? 'sentinel-dashboard/1.0',
+            CURLOPT_HTTPHEADER     => ['Accept: application/json'],
+            CURLOPT_TIMEOUT        => 30,
+        ]);
+        $body = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err  = curl_error($ch);
+        curl_close($ch);
+        if ($body === false) throw new RuntimeException("locationforecast feilet: $err");
+        // 203 = utdatert produktversjon som fortsatt serveres — data er gyldige
+        if ($code !== 200 && $code !== 203) {
+            throw new RuntimeException("locationforecast feilet (HTTP $code): " . substr((string)$body, 0, 200));
+        }
+
+        $data = json_decode($body, true);
+        $oslo = new DateTimeZone('Europe/Oslo');
+        $byDay = [];   // dato => [°C, °C, ...]
+        foreach ($data['properties']['timeseries'] ?? [] as $step) {
+            $temp = $step['data']['instant']['details']['air_temperature'] ?? null;
+            if ($temp === null || !isset($step['time'])) continue;
+            $d = (new DateTime($step['time']))->setTimezone($oslo)->format('Y-m-d');
+            $byDay[$d][] = (float)$temp;
+        }
+
+        $means = [];
+        foreach ($byDay as $d => $temps) {
+            if (count($temps) < 4) continue;
+            $means[$d] = array_sum($temps) / count($temps);
+        }
+        ksort($means);
+        return $means;
+    }
+
     // Bygg og skriv data/kuldemengde.json for sesongen $asOf tilhører.
     // Idempotent: overskriver alltid hele filen. Utenfor sesong skrives en tom
     // locations-serie UTEN å kalle Frost — frontend skjuler da ❄-knappen.
@@ -1355,6 +1403,12 @@ JS;
             }
         }
 
+        // Temperaturvarsel hentes kun når dagens dato faktisk ligger i sesongen
+        // som genereres — testing utenfor sesong (--kuldemengde=2026-02-01 i
+        // juli) skal ikke blande sommertemperaturer inn i en vintersum
+        $fetchForecast = $season !== null
+            && ($this->kmSeasonFor(date('Y-m-d'))['start'] ?? null) === $season['start'];
+
         $out = [
             'season_start' => $season['start'] ?? null,
             'season_end'   => $season['end']   ?? null,
@@ -1364,8 +1418,9 @@ JS;
         ];
 
         $days = 0;
-        $missingCount = 0;
-        $interpCount  = 0;
+        $missingCount  = 0;
+        $interpCount   = 0;
+        $forecastCount = 0;
         foreach ($locs as $loc) {
             $means   = $byStation[$loc['station']] ?? [];
             $filled  = array_flip($filledByStation[$loc['station']] ?? []);
@@ -1397,6 +1452,27 @@ JS;
                     $day->modify('+1 day');
                 }
             }
+
+            // Projisert kuldemengde per varseldag (locationforecast på stedets
+            // egne koordinater): fortsetter fra siste målte km med samme formel
+            // som over. En varselfeil velter aldri den målte oppdateringen.
+            $forecast = [];
+            if ($fetchForecast) {
+                try {
+                    $fcMeans  = $this->fetchForecastDailyMeans((float)$loc['lat'], (float)$loc['lon']);
+                    $lastDate = array_key_last($series);
+                    $km       = $lastDate !== null ? (float)$series[$lastDate]['km'] : 0.0;
+                    foreach ($fcMeans as $d => $mean) {
+                        if ($lastDate !== null && $d <= $lastDate) continue;
+                        if ($d > $season['end']) break;
+                        $km = max(0.0, $km - $mean);
+                        $forecast[$d] = ['mean' => round($mean, 1), 'km' => round($km, 1)];
+                    }
+                } catch (RuntimeException $e) {
+                    $this->log("KM varsel FEIL  {$loc['name']}: " . $e->getMessage());
+                }
+            }
+
             $out['locations'][] = [
                 'name'              => $loc['name'],
                 'lat'               => $loc['lat'],
@@ -1408,10 +1484,12 @@ JS;
                 'interpolated_days' => $interp,
                 // Tom serie må bli {} i JSON (ikke []) så frontend kan bruke Object.keys
                 'series'            => $series === [] ? new stdClass() : $series,
+                'forecast'          => $forecast === [] ? new stdClass() : $forecast,
             ];
-            $days         = max($days, count($series));
-            $missingCount = max($missingCount, count($missing));
-            $interpCount  = max($interpCount, count($interp));
+            $days          = max($days, count($series));
+            $missingCount  = max($missingCount, count($missing));
+            $interpCount   = max($interpCount, count($interp));
+            $forecastCount = max($forecastCount, count($forecast));
         }
 
         // Atomisk skriving — api.php leser filen samtidig
@@ -1424,6 +1502,7 @@ JS;
             'days'         => $days,
             'missing'      => $missingCount,
             'interpolated' => $interpCount,
+            'forecast'     => $forecastCount,
         ];
     }
 
@@ -1786,7 +1865,7 @@ JS;
             try {
                 $km = $this->updateKuldemengde();
                 $stats['km_updated'] = true;
-                $this->log("KM OK    {$km['season']}  ({$km['days']} døgn, {$km['missing']} mangler, {$km['interpolated']} interpolert)");
+                $this->log("KM OK    {$km['season']}  ({$km['days']} døgn, {$km['missing']} mangler, {$km['interpolated']} interpolert, {$km['forecast']} varseldøgn)");
             } catch (RuntimeException $e) {
                 $stats['km_errors'][] = $e->getMessage();
                 $this->log("KM FEIL  " . $e->getMessage());
@@ -1910,7 +1989,7 @@ if (PHP_SAPI === 'cli' && realpath($argv[0]) === __FILE__) {
         }
         try {
             $km = $fetcher->updateKuldemengde($args['kuldemengde']);
-            echo "Kuldemengde oppdatert: {$km['season']}  ({$km['days']} døgn, {$km['missing']} mangler, {$km['interpolated']} interpolert)\n";
+            echo "Kuldemengde oppdatert: {$km['season']}  ({$km['days']} døgn, {$km['missing']} mangler, {$km['interpolated']} interpolert, {$km['forecast']} varseldøgn)\n";
             exit(0);
         } catch (RuntimeException $e) {
             echo "FEIL: " . $e->getMessage() . "\n";

@@ -86,6 +86,11 @@ return [
         'season_start' => '10-01',    // MM-DD — kuldemengden nullstilles her
         'season_end'   => '05-31',    // MM-DD — jun–sep er utenfor sesong
         'data_file'    => __DIR__ . '/data/kuldemengde.json',
+        // Temperaturvarsel (MET locationforecast) — projisert kuldemengde frem i
+        // tid, vist som tabell under sesonggrafen. Hentes per steds lat/lon.
+        // MET krever identifiserende User-Agent — derfor server-side, aldri fra nettleser.
+        'forecast_url' => 'https://api.met.no/weatherapi/locationforecast/2.0/compact',
+        'user_agent'   => 'sentinel-dashboard/1.0 https://kart.vansjo.top pal.svendsrud@gmail.com',
         // km_needed: kuldemengde (°C·døgn, positivt tall) som må til før isen
         // regnes som skøytbar på stedet — vises som «trengs/målt» i etiketten
         'locations'    => [
@@ -123,7 +128,7 @@ return [
     'product'         => 'pro',
 
     'max_cloud_cover' => 100,  // prosent (100 = hent alle uansett skydekke)
-    'days_to_search'  => 14,   // søk bakover N dager
+    'days_to_search'  => 7,    // søk bakover N dager
     'keep_days'       => 30,   // slett bilder eldre enn N dager
     'image_width'     => 1024,
     'image_height'    => 1024,

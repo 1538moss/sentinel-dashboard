@@ -302,7 +302,11 @@ kbd{
         <strong>oransje</strong> når det gjenstår 5&nbsp;% av terskelen eller mindre,
         <strong>røde</strong> ellers, så statusen kan leses på avstand. Klikk på etiketten for å
         åpne en graf over kuldemengdens utvikling gjennom sesongen (fra 1.&nbsp;oktober), med
-        terskelen markert som stiplet rød linje. Døgnmiddelet publiseres
+        terskelen markert som stiplet rød linje. Under grafen vises en <strong>varsel-tabell</strong>:
+        projisert kuldemengde per dag de neste ~9–10&nbsp;dagene, beregnet fra temperaturvarselet
+        (YR/MET locationforecast) for stedets egne koordinater og regnet videre fra siste målte
+        verdi — en <em>prognose</em>, ikke en måling, med samme fargekoding som etikettene
+        (hold musen over en celle for varslet døgnmiddel). Døgnmiddelet publiseres
         med omtrent ett døgns forsinkelse, så verdien kan gjelde dagen før slidedatoen.
         Knappen vises kun i sesongen (oktober–mai), og huskes ikke mellom sideinnlastinger.
       </div>
@@ -361,7 +365,8 @@ kbd{
       <strong>Credit: U.S. Geological Survey.</strong> Landsat-bilder er levert av USGS/NASA og er ikke en del av Copernicus-programmet.
     </div>
     <div class="note">
-      Værdata (kuldemengde) fra Meteorologisk institutt (Frost API), lisensiert under CC BY 4.0.
+      Værdata (kuldemengde og temperaturvarsel) fra Meteorologisk institutt (Frost API og
+      locationforecast/YR), lisensiert under CC BY 4.0.
     </div>
   </section>
 

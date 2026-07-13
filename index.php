@@ -210,6 +210,19 @@ body.km-on .km-label{display:flex}
   background:var(--ink);color:var(--paper);
   font-size:10px;letter-spacing:.05em;padding:3px 7px;white-space:nowrap;
 }
+/* Varsel-tabell under grafen: projisert kuldemengde per varseldag (yr.no).
+   Samme trafikklys-koding som etikettene, men i papir-palettens farger —
+   etikettvariantene er lysnet for mørk bildebunn og ville gitt for lav
+   kontrast mot papir. */
+.km-fc-head{font-size:10px;letter-spacing:.08em;color:var(--muted);margin:10px 0 4px}
+.km-fc-wrap{overflow-x:auto}
+.km-fc{border-collapse:collapse;width:100%;font-family:var(--font-mono)}
+.km-fc th,.km-fc td{border:1px solid var(--hair);padding:3px 4px;text-align:center;white-space:nowrap}
+.km-fc th{font-size:9px;font-weight:400;letter-spacing:.05em;color:var(--muted)}
+.km-fc td{font-size:11px;font-weight:700;letter-spacing:.04em}
+.km-fc .km-ok{color:var(--green)}
+.km-fc .km-warn{color:var(--ochre)}
+.km-fc .km-low{color:var(--red)}
 .img-frame.zoomed img.panning{cursor:grabbing}
 
 /* Kart-only slide (ingen satellittdata) */
@@ -772,6 +785,14 @@ function addCoords(frame) {
 // To linjer: stedsnavn, så «trengs/målt» med store tall i statusfargen —
 // grønt når kuldemengden har passert stedets skøytbar-is-terskel (km_needed),
 // oransje når den er mindre enn KM_WARN_FRACTION av terskelen unna, ellers rødt.
+// Trafikklys-status for en kuldemengde mot stedets terskel — delt mellom
+// overlegg-etikettene og varsel-tabellen i grafmodalen.
+function kmState(km, needed) {
+  return km > needed ? 'km-ok'
+       : needed - km <= needed * KM_WARN_FRACTION ? 'km-warn'
+       : 'km-low';
+}
+
 function buildKmLabels(date) {
   if (!KULDEMENGDE_ENABLED || !date || !AOI || !kmLocations.length) return [];
   const labels = [];
@@ -791,10 +812,7 @@ function buildKmLabels(date) {
     const valEl = document.createElement('div');
     valEl.className = 'km-val';
     if (loc.km_needed != null) {
-      const state = km > loc.km_needed ? 'km-ok'
-                  : loc.km_needed - km <= loc.km_needed * KM_WARN_FRACTION ? 'km-warn'
-                  : 'km-low';
-      valEl.classList.add(state);
+      valEl.classList.add(kmState(km, loc.km_needed));
       valEl.textContent = `${loc.km_needed}/${kmStr}`;
     } else {
       valEl.textContent = `${kmStr} °C·døgn`;
@@ -873,6 +891,23 @@ function openKmChart(loc, endKey) {
   svg += `<line class="xhair" y1="${MT}" y2="${MT + ih}" visibility="hidden"/>` +
          `<circle class="hover-dot" r="4" visibility="hidden"/>`;
 
+  // Varsel-tabell: projisert kuldemengde per varseldag (MET locationforecast
+  // på stedets egne koordinater). Alltid varselet akkurat nå — regnet videre
+  // fra siste MÅLTE verdi, ikke slidedatoens. Samme trafikklys-koding som
+  // etikettene; varslet døgnmiddel vises som tooltip per celle.
+  const fcDates = Object.keys(loc.forecast || {}).sort();
+  let fcHtml = '';
+  if (fcDates.length) {
+    const th = fcDates.map(d => `<th>${fmtDM(d)}</th>`).join('');
+    const td = fcDates.map(d => {
+      const f = loc.forecast[d];
+      const cls = loc.km_needed != null ? kmState(f.km, loc.km_needed) : '';
+      return `<td class="${cls}" title="varslet døgnmiddel ${fmtKm(f.mean)} °C">${fmtKm(f.km)}</td>`;
+    }).join('');
+    fcHtml = `<div class="km-fc-head">Varsel (yr.no) — kuldemengde per dag</div>` +
+             `<div class="km-fc-wrap"><table class="km-fc"><tr>${th}</tr><tr>${td}</tr></table></div>`;
+  }
+
   const backdrop = document.createElement('div');
   backdrop.className = 'km-modal-backdrop';
   const modal = document.createElement('div');
@@ -883,6 +918,7 @@ function openKmChart(loc, endKey) {
     `<div class="km-modal-sub">Kuldemengde (°C·døgn) ${fmtDM(startKey)}–${fmtDM(endKey)}` +
     (loc.station_name ? ` · ${loc.station_name}` : '') + `</div>` +
     `<svg class="km-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Kuldemengde siste 30 dager, ${loc.name}">${svg}</svg>` +
+    fcHtml +
     `<div class="km-tip"></div>`;
   backdrop.appendChild(modal);
   document.body.appendChild(backdrop);

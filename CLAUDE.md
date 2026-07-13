@@ -69,7 +69,7 @@ FROST_CLIENT_ID=...    # MET Frost API (kuldemengde) — gratis klient-ID fra ht
 'render_mode'     => 'false_color'   // eller 'true_color'
 'product'         => 'pro'           // 'std' = kun S2 optisk | 'pro' = S2 + S1 SAR-radar
 'max_cloud_cover' => 100
-'days_to_search'  => 14
+'days_to_search'  => 7
 'keep_days'       => 30              // bilder eldre enn dette slettes automatisk
 'image_width'     => 1024
 'image_height'    => 1024
@@ -187,6 +187,7 @@ Av/på-overlegg med **stedsbaserte etiketter** (ikke rutenett) — kuldemengde e
 - **Sesonglogikk** (`kmSeasonFor()`): okt–des → sesong som starter samme år, jan–mai → forrige år, jun–sep → utenfor sesong. Utenfor sesong skrives en tom `locations`-serie **uten** Frost-kall, og frontend skjuler ❄-knappen — den selvaktiveres etter første cron-kjøring på/etter 1. oktober.
 - **Frost-lag**: døgnmiddel publiseres med ~1 døgns forsinkelse, så frontend bruker nyeste serieoppføring ≤ slidedatoen (verdien kan altså gjelde dagen før slidedatoen — vises ikke i etiketten). Indre datahull interpoleres (`fillFrostGaps()`): manglende døgn får medianen av nærmeste kjente døgn før og etter hullet, flagges `interpolated: true` i serien og listes i `interpolated_days`. Kant-hull (før første/etter siste kjente døgn — typisk publiseringsforsinkelsen) ekstrapoleres aldri: de bidrar 0 og listes i `missing_days`.
 - **Idempotent**: `updateKuldemengde()` regenererer hele `data/kuldemengde.json` (atomisk temp+rename) per kjøring — ett Frost-kall per unik stasjon, uansett antall steder. Fanger også opp Frost sine retroaktive korreksjoner.
+- **Temperaturvarsel** (`fetchForecastDailyMeans()`): MET locationforecast 2.0 (`/compact`, JSON) hentes per steds **egne** lat/lon (ikke stasjonens — brukerens valg), med identifiserende User-Agent fra `frost.user_agent` (MET-krav — derfor alltid server-side). Døgnmiddel = snitt av alle instant-temperaturer per Europe/Oslo-kalenderdag; dager med < 4 datapunkter forkastes (halepunkter). Projisert kuldemengde regnes videre fra siste **målte** km med samme formel, lagres per sted som `forecast: {dato: {mean, km}}` i kuldemengde.json. Hentes kun når dagens dato ligger i sesongen som genereres (juli-testing med `--kuldemengde=2026-02-01` blander ikke sommertemperaturer inn); varselfeil velter aldri den målte oppdateringen (egen try/catch per sted). I grafmodalen vises varselet som horisontal tabell under grafen («Varsel (yr.no)») med KM-tall (ikke temperatur) i samme trafikklys-koding som etikettene — delt `kmState()`-hjelper i `index.php`, men i papir-palettens farger (`--green/--ochre/--red`) siden etikettvariantene er lysnet for mørk bildebunn; varslet døgnmiddel som tooltip per celle. Tabellen viser alltid varselet «akkurat nå», uavhengig av slidedato.
 - **CLI**: `php fetch.php --kuldemengde=YYYY-MM-DD` oppdaterer kun kuldemengde-filen — datoen styrer hvilken sesong som hentes (nyttig for testing om sommeren: `--kuldemengde=2026-02-01` henter vinteren 2025/2026).
 - **Attribusjon**: «Værdata fra Meteorologisk institutt (Frost API), CC BY 4.0» i `help.php`. Viktig presisering der: dette er **lufttemperatur** 2 m over bakken (samme som YR) — i motsetning til LST-overlegget.
 
@@ -242,7 +243,7 @@ sudo -u www-data php /var/www/sentinel/generate_thumbs.php
 ### Manuell bildeinnhenting
 Kjør som `www-data` (samme bruker som cron), ellers blir nye bilde-/thumbnail-filer eid av `root` i stedet for `www-data` — funker for visning (world-readable), men er en unødvendig inkonsistens.
 ```bash
-# Siste 14 dager
+# Siste 7 dager (days_to_search)
 sudo -u www-data php fetch.php
 
 # Spesifikk periode
