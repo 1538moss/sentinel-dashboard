@@ -22,9 +22,11 @@
 </IfModule>
 
 # Tving JSON-svar fra api.php å ikke caches
-<FilesMatch "^api\.php$">
-    Header set Cache-Control "no-store, no-cache"
-</FilesMatch>
+<IfModule mod_headers.c>
+    <FilesMatch "^api\.php$">
+        Header set Cache-Control "no-store, no-cache"
+    </FilesMatch>
+</IfModule>
 
 # Bilder, thumbnails og fonter endres aldri etter at de er skrevet
 # (datostemplet filnavn / versjonert), så de kan caches lenge hos klienten
