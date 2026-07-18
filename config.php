@@ -49,6 +49,21 @@ return [
     ],
     'landsat_enabled' => true,
 
+    // ── Landsat termisk overlegg (TIRS ST_B10) — bak landsat_thermal_enabled ─
+    // Samme USGS-scene som RGB-Landsat-bildet (samme entityId), så dette er en
+    // ekstra bånd-henting på toppen av fetchImageLandsat(), ikke et eget
+    // katalogsøk. Rutenett med fargede temperaturtall, samme visuelle stil og
+    // lstColor()-fargeskala som s3_lst — men finere grid_cell_km siden Landsat
+    // sin native oppløsning (30m) er langt bedre enn SLSTR sin (~1km). Krever
+    // landsat_enabled === true. Se CLAUDE.md.
+    'landsat_thermal_enabled' => false,  // verifisert lokalt — se BACKLOG.md; ikke rullet ut i produksjon ennå
+    'landsat_thermal' => [
+        'grid_cell_km' => 1.0,
+        'temp_min_c'   => -20,
+        'temp_max_c'   => 30,
+        'font_size_px' => 16,
+    ],
+
     // ── CDSE OData Products API (Sentinel-3 SL_2_LST-produktkatalog) ─────────
     // Nedlasting av selve produktet krever et annet tokenet enn Process API:
     // grant_type=password (ekte CDSE-brukernavn/passord) mot client_id=cdse-public,

@@ -786,6 +786,211 @@ JS;
     }
 
     /**
+     * Henter Landsat TIRS ST_B10 (Surface Temperature) for samme scene som
+     * fetchImageLandsat() nettopp hentet RGB-bildet fra (samme entityId — ikke
+     * et eget katalogsøk, kun en ekstra bånd-henting). Warper direkte til et
+     * rutenett (grid_cell_km, samme formel som Sentinel-3 sin rutenett-
+     * kalkulasjon i fetchImageS3LST()) i stedet for full image_width×
+     * image_height-oppløsning, siden vi uansett bare skal tegne diskrete tall.
+     * I motsetning til Sentinel-3 SLSTR er Landsat ikke et swath-produkt, så
+     * vanlig gdalwarp holder — ingen GEOLOCATION-VRT nødvendig. Returnerer
+     * PNG-bytes (samme kontrakt som fetchImageS3LST()).
+     */
+    public function fetchImageLandsatThermal(string $date, string $entityId, ?string $acquiredAt = null): string
+    {
+        $aoi = $this->config['aoi'];
+        $cfg = $this->config['landsat_thermal'];
+
+        $doResp = $this->usgsRequest('download-options', [
+            'datasetName' => $this->config['usgs']['dataset'],
+            'entityIds'   => [$entityId],
+        ]);
+
+        $wantedFiles = ['ST_B10', 'QA_PIXEL'];
+        $bandInfo = [];
+        foreach ($doResp['data'] ?? [] as $bundle) {
+            foreach ($bundle['secondaryDownloads'] ?? [] as $sub) {
+                foreach ($wantedFiles as $band) {
+                    if (str_ends_with($sub['displayId'] ?? '', "_{$band}.TIF")) {
+                        $bandInfo[$band] = ['entityId' => $sub['entityId'], 'productId' => $sub['id']];
+                    }
+                }
+            }
+        }
+        foreach ($wantedFiles as $band) {
+            if (empty($bandInfo[$band])) {
+                throw new RuntimeException("Fant ikke bånd $band i download-options for $entityId");
+            }
+        }
+
+        $scratchDir = $this->config['data_dir'] . 'landsat_temp_tmp/' . $date . '_' . getmypid() . '/';
+        if (!is_dir($scratchDir)) mkdir($scratchDir, 0755, true);
+
+        try {
+            $localFiles = [];
+            foreach ($wantedFiles as $band) {
+                $info = $bandInfo[$band];
+                $drResp = $this->usgsRequest('download-request', [
+                    'downloads' => [['entityId' => $info['entityId'], 'productId' => $info['productId']]],
+                    'label'     => 'sentinel-fetch',
+                ]);
+
+                $url = $drResp['data']['availableDownloads'][0]['url'] ?? null;
+                if (!$url) {
+                    $downloadId = $drResp['data']['preparingDownloads'][0]['downloadId']
+                        ?? $drResp['data']['duplicateProducts'][0]['downloadId']
+                        ?? null;
+                    if ($downloadId === null) {
+                        throw new RuntimeException("Ingen nedlastings-URL for bånd $band ($entityId)");
+                    }
+                    for ($i = 0; $i < 10 && !$url; $i++) {
+                        sleep(6);
+                        $retResp = $this->usgsRequest('download-retrieve', ['label' => 'sentinel-fetch']);
+                        foreach ($retResp['data']['available'] ?? [] as $a) {
+                            if (($a['downloadId'] ?? null) == $downloadId) $url = $a['url'];
+                        }
+                    }
+                    if (!$url) {
+                        throw new RuntimeException("Nedlasting for bånd $band ($entityId) ble aldri klar");
+                    }
+                }
+
+                $dest = $scratchDir . $band . '.TIF';
+                $fp = fopen($dest, 'wb');
+                $ch = curl_init($url);
+                curl_setopt_array($ch, [
+                    CURLOPT_FILE           => $fp,
+                    CURLOPT_TIMEOUT        => 180,
+                    CURLOPT_FOLLOWLOCATION => true,
+                ]);
+                curl_exec($ch);
+                $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                $err  = curl_error($ch);
+                curl_close($ch);
+                fclose($fp);
+
+                if ($code !== 200 || $err || !is_file($dest) || filesize($dest) === 0) {
+                    throw new RuntimeException("Nedlasting av bånd $band feilet (HTTP $code)" . ($err ? " — $err" : ''));
+                }
+                $localFiles[$band] = $dest;
+            }
+
+            $gdalwarp      = $this->config['gdal']['gdalwarp_cmd'];
+            $gdalTranslate = $this->config['gdal']['gdal_translate_cmd'];
+            $bbox          = "{$aoi['west']} {$aoi['south']} {$aoi['east']} {$aoi['north']}";
+
+            // Rutenett-dimensjoner: ~grid_cell_km per rute, basert på AOI-utstrekning
+            // (samme formel som Sentinel-3 sin fetchImageS3LST())
+            $centerLat   = ($aoi['north'] + $aoi['south']) / 2;
+            $kmPerDegLat = 111.32;
+            $kmPerDegLon = 111.32 * cos(deg2rad($centerLat));
+            $cols = max(1, (int)round((($aoi['east'] - $aoi['west']) * $kmPerDegLon) / $cfg['grid_cell_km']));
+            $rows = max(1, (int)round((($aoi['north'] - $aoi['south']) * $kmPerDegLat) / $cfg['grid_cell_km']));
+
+            // Warp direkte til rutenettet (nearest-neighbor — representativ pikselverdi
+            // per rute, ikke en blanding av gyldig/skydekket data over rutegrensen)
+            $tempGrid = $scratchDir . 'temp_grid.tif';
+            $this->runGdal("$gdalwarp -overwrite -t_srs EPSG:4326 -te $bbox -ts $cols $rows -r near -srcnodata 0 -dstnodata 0 " . escapeshellarg($localFiles['ST_B10']) . ' ' . escapeshellarg($tempGrid));
+
+            // -dstnodata 1 av samme grunn som i fetchImageLandsat(): QA_PIXEL sin egen
+            // fill-verdi har bit0=1, så det er riktig fyllverdi utenfor scenens dekning.
+            $qaGrid = $scratchDir . 'qa_grid.tif';
+            $this->runGdal("$gdalwarp -overwrite -t_srs EPSG:4326 -te $bbox -ts $cols $rows -r near -dstnodata 1 " . escapeshellarg($localFiles['QA_PIXEL']) . ' ' . escapeshellarg($qaGrid));
+
+            $tempXyz = $scratchDir . 'temp.xyz';
+            $qaXyz   = $scratchDir . 'qa.xyz';
+            $this->runGdal("$gdalTranslate -of XYZ " . escapeshellarg($tempGrid) . ' ' . escapeshellarg($tempXyz));
+            $this->runGdal("$gdalTranslate -of XYZ " . escapeshellarg($qaGrid) . ' ' . escapeshellarg($qaXyz));
+
+            $tempRows = file($tempXyz);
+            $qaRows   = file($qaXyz);
+            if (!$tempRows || !$qaRows || count($tempRows) !== count($qaRows)) {
+                throw new RuntimeException("Temperatur- og QA_PIXEL-rutenett har ulikt antall celler for $entityId");
+            }
+
+            $w = $this->config['image_width'];
+            $h = $this->config['image_height'];
+            $im = imagecreatetruecolor($w, $h);
+            imagesavealpha($im, true);
+            $transparent = imagecolorallocatealpha($im, 0, 0, 0, 127);
+            imagefill($im, 0, 0, $transparent);
+
+            $font = $this->labelFont();
+            $fontSize = $cfg['font_size_px'];
+            $boxColor = imagecolorallocatealpha($im, 0xE7, 0xE3, 0xD6, 10); // papir, ~92% dekkende
+
+            // QA_PIXEL-bit: fill(0) | dilated cloud(1) | cloud(3) | cloud shadow(4) —
+            // cirrus(2) og snø/vann utelates bevisst (varmt/kaldt tall er fortsatt
+            // meningsfullt der), men skytopp-temperaturer er villedende.
+            $skipMask = (1 << 0) | (1 << 1) | (1 << 3) | (1 << 4);
+
+            $drawn = 0;
+            for ($i = 0; $i < count($tempRows); $i++) {
+                $tempParts = preg_split('/\s+/', trim($tempRows[$i]));
+                $qaParts   = preg_split('/\s+/', trim($qaRows[$i]));
+                if (count($tempParts) < 3 || count($qaParts) < 3) continue;
+
+                $lon   = (float)$tempParts[0];
+                $lat   = (float)$tempParts[1];
+                $dn    = (float)$tempParts[2];
+                $qaRaw = (int)(float)$qaParts[2];
+
+                if ($dn == 0) continue;                    // NODATA/fill
+                if (($qaRaw & $skipMask) !== 0) continue;   // skydekket/fill
+
+                // Landsat C2 L2 ST_B10: Kelvin = DN*0.00341802 + 149.0
+                $celsius = ($dn * 0.00341802 + 149.0) - 273.15;
+
+                $px = ($lon - $aoi['west'])  / ($aoi['east']  - $aoi['west'])  * $w;
+                $py = ($aoi['north'] - $lat) / ($aoi['north'] - $aoi['south']) * $h;
+
+                $color = $this->lstColor($im, $celsius, (float)$cfg['temp_min_c'], (float)$cfg['temp_max_c']);
+                $label = (string)(int)round($celsius);
+                $box   = imagettfbbox($fontSize, 0, $font, $label);
+                $textW = $box[2] - $box[0];
+                $textH = $box[1] - $box[5];
+                $tx = (int)round($px - $textW / 2);
+                $ty = (int)round($py + $textH / 2);
+
+                $pad = max(2, (int)round($fontSize * 0.3));
+                imagefilledrectangle(
+                    $im,
+                    $tx - $pad, $ty - $textH - $pad,
+                    $tx + $textW + $pad, $ty + $pad,
+                    $boxColor
+                );
+                imagettftext($im, $fontSize, 0, $tx, $ty, $color, $font, $label);
+                $drawn++;
+            }
+
+            if ($drawn === 0) {
+                imagedestroy($im);
+                throw new RuntimeException("Ingen sky-frie termiske ruter for $entityId (hele scenen skydekket over AOI)");
+            }
+
+            if ($acquiredAt) {
+                $this->drawTimeLabel($im, $acquiredAt, max(9, (int)round($fontSize * 0.75)));
+            }
+
+            ob_start();
+            imagepng($im);
+            $result = ob_get_clean();
+            imagedestroy($im);
+
+            if ($result === false || $result === '') {
+                throw new RuntimeException("Kunne ikke generere Landsat-termisk PNG for $entityId");
+            }
+            return $result;
+        } finally {
+            $files = glob($scratchDir . '*');
+            if ($files) {
+                foreach ($files as $f) unlink($f);
+            }
+            @rmdir($scratchDir);
+        }
+    }
+
+    /**
      * Bygger "NETCDF:"path":var"-argumentet trygt på tvers av plattform.
      * PHP sin escapeshellarg() på Windows FJERNER anførselstegn inni strengen
      * i stedet for å escape dem (kjent plattformbegrensning), som ødelegger
@@ -1762,16 +1967,40 @@ JS;
                         $thumbPath = $this->config['thumbs_dir'] . $thumbFile;
                         $thumbOk   = $this->generateThumb($savePath, $thumbPath);
 
+                        // Termisk overlegg (ST_B10) — egen try/catch: samme filosofi som
+                        // S1/Landsat/S3 seg imellom, en feilende thermal-henting skal
+                        // aldri velte det RGB-Landsat-bildet vi nettopp lagret over.
+                        $thermalFilename  = null;
+                        $thermalThumbnail = null;
+                        if (($this->config['landsat_thermal_enabled'] ?? false) === true) {
+                            try {
+                                $thermalData = $this->fetchImageLandsatThermal($date, $entry['entity_id'], $entry['acquired_at'] ?? null);
+                                $thermalFilename = $date . '-landsattemp.png';
+                                $thermalPath = $this->config['images_dir'] . $thermalFilename;
+                                file_put_contents($thermalPath, $thermalData);
+
+                                $thermalThumbCandidate = $date . '-landsattemp.jpg';
+                                $thermalThumbPath = $this->config['thumbs_dir'] . $thermalThumbCandidate;
+                                $thermalThumbnail = $this->generateThumb($thermalPath, $thermalThumbPath) ? $thermalThumbCandidate : null;
+                                $this->log("LANDSAT-TEMP OK    $date  →  $thermalFilename");
+                            } catch (RuntimeException $e) {
+                                $thermalFilename = null;
+                                $this->log("LANDSAT-TEMP FEIL  $date  " . $e->getMessage());
+                            }
+                        }
+
                         $metadata[] = [
-                            'id'          => 'landsat_' . $date,
-                            'date'        => $date,
-                            'sensor'      => 'LANDSAT',
-                            'cloud_cover' => $cloud,
-                            'filename'    => $filename,
-                            'thumbnail'   => $thumbOk ? $thumbFile : null,
-                            'type'        => 'landsat',
-                            'acquired_at' => $entry['acquired_at'] ?? null,
-                            'fetched_at'  => date('c'),
+                            'id'                => 'landsat_' . $date,
+                            'date'              => $date,
+                            'sensor'            => 'LANDSAT',
+                            'cloud_cover'       => $cloud,
+                            'filename'          => $filename,
+                            'thumbnail'         => $thumbOk ? $thumbFile : null,
+                            'type'              => 'landsat',
+                            'acquired_at'       => $entry['acquired_at'] ?? null,
+                            'fetched_at'        => date('c'),
+                            'thermal_filename'  => $thermalFilename,
+                            'thermal_thumbnail' => $thermalThumbnail,
                         ];
 
                         $stats['landsat_downloaded']++;

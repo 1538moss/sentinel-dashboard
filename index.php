@@ -64,17 +64,18 @@ html,body{height:100%;overflow:hidden;background:var(--paper);color:var(--ink)}
   font-family:var(--font-mono);font-size:11px;color:var(--muted);
 }
 #counter{color:var(--ink);letter-spacing:.08em}
-.fetch-btn,.filter-btn,.lst-btn,.frost-btn{
+.fetch-btn,.filter-btn,.lst-btn,.frost-btn,.landsat-lst-btn{
   background:transparent;border:1px solid var(--ink);color:var(--ink);
   padding:6px 12px;font-size:10px;letter-spacing:.18em;text-transform:uppercase;
   font-family:var(--font-mono);cursor:pointer;
   transition:background .15s,color .15s,border-color .15s;
 }
-.fetch-btn:hover,.filter-btn:hover,.lst-btn:hover,.frost-btn:hover{background:var(--ink);color:var(--paper)}
+.fetch-btn:hover,.filter-btn:hover,.lst-btn:hover,.frost-btn:hover,.landsat-lst-btn:hover{background:var(--ink);color:var(--paper)}
 .fetch-btn:disabled{opacity:.4;cursor:not-allowed;background:transparent;color:var(--ink)}
 .filter-btn.active{background:var(--accent);border-color:var(--accent);color:var(--paper)}
 .lst-btn.active{background:var(--thermal);border-color:var(--thermal);color:var(--paper)}
 .frost-btn.active{background:var(--frost);border-color:var(--frost);color:var(--paper)}
+.landsat-lst-btn.active{background:var(--landsat);border-color:var(--landsat);color:var(--paper)}
 .help-btn{
   background:transparent;border:1px solid var(--ink);color:var(--ink);
   width:29px;height:29px;display:flex;align-items:center;justify-content:center;
@@ -83,7 +84,7 @@ html,body{height:100%;overflow:hidden;background:var(--paper);color:var(--ink)}
 }
 .help-btn:hover{background:var(--ink);color:var(--paper)}
 .fetch-btn:focus-visible,.filter-btn:focus-visible,.pro-btn:focus-visible,.lst-btn:focus-visible,
-.frost-btn:focus-visible,
+.frost-btn:focus-visible,.landsat-lst-btn:focus-visible,
 .help-btn:focus-visible,.nav:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .next-badge{
   font-family:var(--font-mono);font-size:10px;letter-spacing:.06em;
@@ -131,7 +132,7 @@ html,body{height:100%;overflow:hidden;background:var(--paper);color:var(--ink)}
 }
 .img-frame.zoomed{overflow:hidden}
 .img-frame.zoomed img{cursor:grab;user-select:none}
-.img-frame.zoomed .lake-overlay,.img-frame.zoomed .lst-overlay,.img-frame.zoomed .km-label{display:none}
+.img-frame.zoomed .lake-overlay,.img-frame.zoomed .lst-overlay,.img-frame.zoomed .landsat-lst-overlay,.img-frame.zoomed .km-label{display:none}
 .lake-overlay{
   position:absolute;inset:0;
   width:100%;height:100%;
@@ -151,6 +152,17 @@ html,body{height:100%;overflow:hidden;background:var(--paper);color:var(--ink)}
   transition:opacity .3s;
 }
 body.lst-on .lst-overlay{opacity:1}
+/* Landsat termisk overlegg (TIRS ST_B10) — av/på via landsat-lst-btn, kun på Landsat-panelet */
+.landsat-lst-overlay{
+  position:absolute;inset:0;
+  width:100%;height:100%;
+  object-fit:contain;
+  pointer-events:none;
+  z-index:4;
+  opacity:0;
+  transition:opacity .3s;
+}
+body.landsat-lst-on .landsat-lst-overlay{opacity:1}
 /* Kuldemengde-etiketter (MET Frost) — av/på via frost-btn, én per sted i
    frost.locations, plassert med prosent direkte fra AOI-koordinatene */
 .km-label{
@@ -397,7 +409,7 @@ body.km-on .km-label{display:flex}
   .next-badge{display:none}
   #counter{display:none}
   .hdr-right{gap:8px}
-  .fetch-btn,.filter-btn,.lst-btn,.frost-btn{padding:5px 8px;font-size:9px;letter-spacing:.1em}
+  .fetch-btn,.filter-btn,.lst-btn,.frost-btn,.landsat-lst-btn{padding:5px 8px;font-size:9px;letter-spacing:.1em}
   .km-label{font-size:9px;padding:3px 6px}
   .km-label .km-val{font-size:14px}
   .info-bar{padding:0 12px;gap:12px}
@@ -555,6 +567,11 @@ body.pro-mode{
       🌡 °C
     </button>
     <?php endif; ?>
+    <?php if (($cfg['landsat_thermal_enabled'] ?? false) && ($cfg['landsat_enabled'] ?? false)): ?>
+    <button class="landsat-lst-btn" id="landsat-lst-btn" onclick="toggleLandsatLstOverlay()" title="Vis landoverflatetemperatur fra Landsat (TIRS) som overlegg på Landsat-bildet">
+      🌡 Landsat
+    </button>
+    <?php endif; ?>
     <?php if ($cfg['kuldemengde_enabled'] ?? false): ?>
     <!-- Starter skjult — JS viser knappen kun når kuldemengde-serien har data (i sesong) -->
     <button class="frost-btn" id="frost-btn" onclick="toggleKmOverlay()" style="display:none"
@@ -598,6 +615,7 @@ const FETCH_TOKEN = <?= json_encode($cfg['fetch_token'] ?? '') ?>;
 const AOI = <?= json_encode($cfg['aoi'] ?? null) ?>;
 const LANDSAT_ENABLED = <?= json_encode($cfg['landsat_enabled'] ?? false) ?>;
 const S3_LST_ENABLED = <?= json_encode($cfg['s3_lst_enabled'] ?? false) ?>;
+const LANDSAT_THERMAL_ENABLED = <?= json_encode($cfg['landsat_thermal_enabled'] ?? false) ?>;
 const KULDEMENGDE_ENABLED = <?= json_encode($cfg['kuldemengde_enabled'] ?? false) ?>;
 const KM_WARN_FRACTION = 0.05;  // andel av terskelen som gjenstår → oransje tall
 let allImages = [];
@@ -610,6 +628,7 @@ let idx = 0;
 let flashTimer = null;
 let filterActive = false;
 let lstOverlayActive = false; // ikke lagret i localStorage — nullstilles ved hver sideinnlasting
+let landsatLstActive = false; // Landsat-termisk overlegg — heller ikke persistert
 let kmActive = false;         // kuldemengde-overlegg — heller ikke persistert
 let kmLocations = [];         // steder med ikke-tom kuldemengde-serie (fra ?action=list)
 let proMode = localStorage.getItem('proMode') === '1';
@@ -729,6 +748,13 @@ function toggleLstOverlay() {
   lstOverlayActive = !lstOverlayActive;
   document.getElementById('lst-btn').classList.toggle('active', lstOverlayActive);
   document.body.classList.toggle('lst-on', lstOverlayActive);
+}
+
+// ── Landsat termisk overlegg (TIRS ST_B10) ───────────────────────────────────
+function toggleLandsatLstOverlay() {
+  landsatLstActive = !landsatLstActive;
+  document.getElementById('landsat-lst-btn').classList.toggle('active', landsatLstActive);
+  document.body.classList.toggle('landsat-lst-on', landsatLstActive);
 }
 
 // ── Kuldemengde-overlegg (MET Frost) ─────────────────────────────────────────
@@ -1077,6 +1103,15 @@ function buildLandsatFrame(landsat, standalone = false) {
     const ov = document.createElement('img');
     ov.src       = 'assets/lake_overlay.png';
     ov.className = 'lake-overlay';
+    ov.alt       = '';
+    ov.onerror   = () => ov.remove();
+    frame.appendChild(ov);
+  }
+
+  if (LANDSAT_THERMAL_ENABLED && landsat.thermal_filename) {
+    const ov = document.createElement('img');
+    ov.src       = versioned(`images/${landsat.thermal_filename}`, landsat);
+    ov.className = 'landsat-lst-overlay';
     ov.alt       = '';
     ov.onerror   = () => ov.remove();
     frame.appendChild(ov);

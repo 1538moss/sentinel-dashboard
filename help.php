@@ -287,6 +287,18 @@ kbd{
       enn det som meldes som «dagens temperatur».
     </div>
     <div class="row">
+      <div class="key">🌡 Landsat-overlegg <span class="pro-tag">Pro</span></div>
+      <div class="desc">
+        Samme type rutenett med temperaturtall som 🌡 °C-overlegget, men fra Landsat sin egen
+        varmesensor (TIRS) i stedet for Sentinel-3 — klikk <kbd>🌡 Landsat</kbd>-knappen i headeren.
+        Siden Landsat har mye høyere oppløsning (30 m mot Sentinel-3 sine ~1 km) er rutenettet
+        finere. Vises kun oppå Landsat-bildet (Pro-panelet, eller hovedvisningen når Landsat
+        erstatter et manglende Sentinel-2-bilde) — og kun de dagene et Landsat-bilde faktisk
+        finnes. Samme fargeskala og samme forbehold som over: dette er også overflatetemperatur,
+        ikke lufttemperatur.
+      </div>
+    </div>
+    <div class="row">
       <div class="key">❄ Kuldemengde</div>
       <div class="desc">
         Kuldemengde er en løpende sum av døgnmiddeltemperaturer siden 1.&nbsp;oktober, regnet som
@@ -339,7 +351,8 @@ kbd{
       <div class="key">Landsat 8-9 <span class="pro-tag">Pro</span></div>
       <div class="desc">
         Optisk kamera drevet av USGS/NASA. Passerer over Norge omtrent <strong>hvert 16. dag</strong> per satellitt,
-        så panelet viser «Ingen Landsat-data» de fleste dager — det er forventet, ikke en feil.
+        så panelet viser «Ingen Landsat-data» de fleste dager — det er forventet, ikke en feil. Har også
+        en varmesensor (TIRS) om bord — se 🌡 Landsat-overlegget over.
       </div>
     </div>
     <div class="row">

@@ -1,7 +1,7 @@
 # Sentinel Satellite Dashboard
 
 ## Prosjektbeskrivelse
-En webløsning som automatisk henter daglige satellittbilder fra Sentinel-2 (ESA), lagrer dem, og viser dem som et interaktivt fullskjerm-slideshow med datomerking, skydekke-info og tidslinje. I Pro-modus vises i tillegg Sentinel-1 SAR-radar og (bak et eget flagg) Landsat 8-9 optisk (USGS). Bak et eget flagg kan man også slå på et av/på-overlegg med landoverflatetemperatur fra Sentinel-3 (SLSTR LST), vist som et rutenett med fargede temperaturtall oppå det optiske bildet. Bak nok et flagg finnes et kuldemengde-overlegg (MET Frost API): stedsbaserte etiketter med akkumulert sum av døgnmiddeltemperaturer under 0 °C gjennom vintersesongen — for å vurdere skøytbar is.
+En webløsning som automatisk henter daglige satellittbilder fra Sentinel-2 (ESA), lagrer dem, og viser dem som et interaktivt fullskjerm-slideshow med datomerking, skydekke-info og tidslinje. I Pro-modus vises i tillegg Sentinel-1 SAR-radar og (bak et eget flagg) Landsat 8-9 optisk (USGS). Bak et eget flagg kan man også slå på et av/på-overlegg med landoverflatetemperatur fra Sentinel-3 (SLSTR LST), vist som et rutenett med fargede temperaturtall oppå det optiske bildet — og bak enda et flagg et tilsvarende, finere rutenett fra Landsat sin egen varmesensor (TIRS ST_B10) oppå Landsat-bildet. Bak nok et flagg finnes et kuldemengde-overlegg (MET Frost API): stedsbaserte etiketter med akkumulert sum av døgnmiddeltemperaturer under 0 °C gjennom vintersesongen — for å vurdere skøytbar is.
 
 **GitHub:** https://github.com/1538moss/sentinel-dashboard  
 **Produksjon:** https://kart.vansjo.top  
@@ -82,6 +82,9 @@ FROST_CLIENT_ID=...    # MET Frost API (kuldemengde) — gratis klient-ID fra ht
 'usgs'            => [username, token, base_url, dataset]
 'landsat_enabled' => true              // slår på Landsat-henting i fetch.php (krever gdal-bin/python3-gdal på serveren) — live i produksjon
 
+'landsat_thermal_enabled' => false     // slår på TIRS ST_B10-overlegget (samme scene som Landsat-bildet) — verifisert lokalt, ikke rullet ut i produksjon ennå (se BACKLOG.md)
+'landsat_thermal'         => [grid_cell_km, temp_min_c, temp_max_c, font_size_px]
+
 'cdse_odata'      => [products_url, download_host, product_type, username, password]  // S3 LST-nedlasting (OData, IKKE Process API)
 's3_lst_enabled'  => true              // slår på S3 LST-henting (krever gdal-bin med netCDF-driver — se eget avsnitt) — live i produksjon
 's3_lst'          => [grid_cell_km, temp_min_c, temp_max_c, font_size_px]
@@ -118,6 +121,7 @@ OAuth2-klient opprettes på: https://shapps.dataspace.copernicus.eu/dashboard/#/
 7. Bilder eldre enn `keep_days` slettes automatisk
 8. Dager uten satellittdata får `type: "map"` i metadata
 9. Når `landsat_enabled` er `true`: samme flyt for Landsat 8-9 via USGS M2M (se eget avsnitt under), uavhengig av S2/S1 — en feilende M2M-kobling logges og hopper over Landsat for hele kjøringen, uten å påvirke S2/S1
+9b. Når i tillegg `landsat_thermal_enabled` er `true`: rett etter et vellykket Landsat-bilde hentes samme scenes TIRS-bånd (ST_B10) og rutenett-overlegget genereres (se eget avsnitt under) — egen try/catch per dato, en feilende thermal-henting påvirker aldri det allerede lagrede Landsat-bildet
 10. Når `s3_lst_enabled` er `true`: uavhengig pipeline for Sentinel-3 LST (se eget avsnitt under) — påvirker aldri S2/S1/Landsat om noe feiler
 11. Når `kuldemengde_enabled` er `true`: uavhengig Frost-oppdatering av `data/kuldemengde.json` (se eget avsnitt under) — påvirker aldri bildepipelinene om noe feiler
 
@@ -158,6 +162,22 @@ I motsetning til Sentinel Hub har M2M **ingen** ferdig-rendret bilde-API — kun
 Lagres som `images/YYYY-MM-DD-landsat.png` + thumbnail, metadata med `sensor: "LANDSAT"`, `type: "landsat"`. Attribusjon **"Credit: U.S. Geological Survey"** vises i panelet og i `help.php`, separat fra ESA/Copernicus-attribusjonen.
 
 `gdal.gdalwarp_cmd`/`gdal_translate_cmd`/`gdal_calc_cmd`/`gdalbuildvrt_cmd` i `config.php` peker som standard på PATH-kommandoer (produksjon). For lokal Windows-testing overstyres disse med fulle stier til OSGeo4W (se kommentar i `config.php`).
+
+---
+
+## Landsat termisk (TIRS ST_B10) — bak `landsat_thermal_enabled`-flagget
+
+Av/på-overlegg (ikke et eget panel) — samme idé som Sentinel-3 LST-overlegget, men for Landsat sin egen varmesensor (TIRS), vist oppå Landsat-bildet (Pro-panelet, eller Std-modus sin Landsat-fallback). Slått av som standard; styres med `🌡 Landsat`-knappen i headeren (vises kun når både `landsat_thermal_enabled` og `landsat_enabled` er på), tilstanden lagres ikke mellom sideinnlastinger.
+
+I motsetning til Sentinel-3 er dette **ikke** et eget katalogsøk — `fetchImageLandsatThermal()` i `fetch.php` kjøres rett etter et vellykket `fetchImageLandsat()`-kall for samme `entityId` (samme scene, samme passering), og henter kun det ekstra båndet `ST_B10` (pluss `QA_PIXEL` på nytt, siden thermal-hentingen kjører i sin egen scratch-mappe/try-catch):
+
+1. `download-options`/`download-request`/`download-retrieve` for `ST_B10`+`QA_PIXEL` — identisk mønster som i `fetchImageLandsat()`.
+2. I motsetning til RGB-pipelinen, som warper til full `image_width`×`image_height` og komponerer en RGBA-PNG, warpes `ST_B10` (og `QA_PIXEL`) direkte til et **rutenett** (`landsat_thermal.grid_cell_km`, standard 1 km — finere enn S3 sine 2,5 km siden Landsat sin native oppløsning er 30 m mot SLSTR sine ~1 km) via ordinær `gdalwarp` (nearest-neighbor). Landsat er, i motsetning til Sentinel-3 SLSTR, **ikke** et swath-produkt, så ingen `GEOLOCATION`-VRT/`buildGeolocGridTif()` er nødvendig her — rutenett-dimensjonene beregnes med samme km→grader-formel som i `fetchImageS3LST()`.
+3. Rutenettet eksporteres til XYZ og parses i PHP, samme teknikk som S3. DN → Celsius: Landsat Collection 2 Level-2 sin offisielle skala for `ST_B10`, `Kelvin = DN*0.00341802 + 149.0`.
+4. Celler hoppes over ved `QA_PIXEL`-bit fill(0)/dilated cloud(1)/cloud(3)/cloud shadow(4) — cirrus(2) utelates bevisst (fortsatt meningsfullt tall), men skytopp-temperaturer ville vært villedende.
+5. Tegnes med PHP GD, samme `lstColor()`-fargeskala og papirboks-stil som S3 (gjenbrukt direkte, ikke duplisert) — egne `temp_min_c`/`temp_max_c`/`font_size_px` i `landsat_thermal`-configen, men samme fargeverdier som `s3_lst` som standard for visuell konsistens mellom de to overleggene.
+
+Lagres som `images/YYYY-MM-DD-landsattemp.png` + thumbnail, som `thermal_filename`/`thermal_thumbnail`-felt **på den eksisterende Landsat-metadataoppføringen** (ikke en egen `sensor`/`type`-entry slik S3 er modellert) — riktig datamodell her, siden dette alltid er nøyaktig samme scene/akkvisisjonstidspunkt som RGB-Landsat-bildet, ikke en uavhengig kilde som tilfeldigvis deler dato. Feltene er `null` når flagget er av eller thermal-hentingen feiler; RGB-Landsat-bildet lagres uansett. **Ingen retroaktiv backfill**: eksisterende Landsat-oppføringer fra før flagget ble slått på får ikke thermal-data automatisk (skip-logikken i `_run()` er filnavn-basert, ikke felt-basert) — kun nye Landsat-scener hentet etter aktivering får overlegget.
 
 ---
 
@@ -206,6 +226,7 @@ Av/på-overlegg med **stedsbaserte etiketter** (ikke rutenett) — kuldemengde e
 | Neste bilde | Klart-badge vises i header når nytt bilde er tilgjengelig (ingen estimert-dato lenger) |
 | Landsat-fallback (Std) | I Std-modus (ikke Pro): mangler S2-bilde for en dato, men finnes Landsat-bilde for samme dato → vises Landsat-bildet i hovedvisningen i stedet for kart, merket «Landsat (erstatning)» + USGS-kreditering. Pro-modus er upåvirket (viser alltid egen Landsat-panel uavhengig av S2). |
 | LST-overlegg | `🌡 °C`-knapp (kun synlig når `s3_lst_enabled`) slår av/på et rutenett med fargede temperaturtall (papirfarget bakgrunnsboks per tall + klokkeslett for målingen) oppå S2-bildet — fungerer i både Std- og Pro-modus (Pro-modus sitt "Optisk"-panel), tilstanden nullstilles ved sideinnlasting |
+| Landsat-termisk-overlegg | `🌡 Landsat`-knapp (kun synlig når `landsat_thermal_enabled` og `landsat_enabled`) slår av/på et tilsvarende, finere rutenett fra Landsat sin TIRS-sensor — kun oppå Landsat-bildet (Pro-panelet eller Std-modus sin Landsat-fallback), kun de dagene et Landsat-bilde finnes, tilstanden nullstilles ved sideinnlasting |
 | Kuldemengde-overlegg | `❄ Kulde`-knapp (rendres når `kuldemengde_enabled`, men vises av JS kun når sesongens serie har data) slår av/på stedsbaserte etiketter med akkumulert kuldemengde per slidedato — to linjer på hvit gjennomsiktig bakgrunn: «❄ Lødengfjorden» og «23/47,3» med store tall i statusfargen (grønn når terskelen `km_needed` er passert, oransje når ≤ 5 % av terskelen gjenstår, ellers rød) — plassert på stedets koordinat, skjules ved zoom, nullstilles ved sideinnlasting; klikk på etiketten åpner sesonggraf-modal (se kuldemengde-avsnittet) |
 | Mobil | Forenklet header under 640px |
 

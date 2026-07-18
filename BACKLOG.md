@@ -1,5 +1,31 @@
 # Backlog
 
+## Landsat termisk overlegg — TIRS ST_B10 (implementert, verifisert lokalt — klar for prod-rollout)
+
+Rutenett med fargede temperaturtall fra Landsat sin egen varmesensor (TIRS), samme visuelle idé som Sentinel-3 LST-overlegget men vist oppå Landsat-bildet i stedet for S2, bak `landsat_thermal_enabled`-flagget (default `false`). Siden `ST_B10` kommer fra nøyaktig samme USGS-scene/`entityId` som RGB-Landsat-bildet (ikke et eget katalogsøk), lagres resultatet som `thermal_filename`/`thermal_thumbnail`-felt **på den eksisterende Landsat-metadataoppføringen**, ikke som en egen `sensor`/`type`-entry slik S3 er modellert.
+
+**Status:** All kode implementert (`fetchImageLandsatThermal()` i `fetch.php`, konfig, frontend-knapp/overlegg, dokumentasjon). Kjørt ende-til-ende lokalt mot ekte USGS M2M-data 2026-07-18, med `landsat_thermal_enabled` midlertidig satt til `true` og umiddelbart tilbakestilt til `false` etter verifisering (aldri liggende på i config mellom økter). Gjenstår: bruker bekrefter visuelt i nettleser, deretter `landsat_thermal_enabled => true` i produksjons-config.
+
+**Implementert:**
+1. `config.php`: `landsat_thermal_enabled`-flagg + `landsat_thermal`-blokk (`grid_cell_km: 1.0` — finere enn S3 sine 2.5km siden Landsat sin native oppløsning er 30m mot SLSTR sine ~1km — `temp_min_c`/`temp_max_c`/`font_size_px`, samme fargebånd som `s3_lst` for visuell konsistens).
+2. `fetch.php`: `fetchImageLandsatThermal()` — henter `ST_B10`+`QA_PIXEL` for samme `entityId` (egen `download-options`/`download-request`/`download-retrieve`-runde, siden thermal-hentingen kjører i sin egen scratch-mappe/try-catch), warper direkte til et rutenett via ordinær `gdalwarp` (ikke swath/GEOLOCATION-VRT som S3 — Landsat har vanlig geotransform), DN→Celsius via Landsat C2 L2 sin offisielle `ST_B10`-skala (`Kelvin = DN*0.00341802 + 149.0`), maskerer QA_PIXEL-bit fill/dilated-cloud/cloud/cloud-shadow, tegner med gjenbrukt `lstColor()` og samme papirboks-stil som S3. Kalt fra `_run()` rett etter et vellykket Landsat-bilde, egen try/catch (en feilende thermal-henting påvirker aldri det allerede lagrede RGB-bildet).
+3. `index.php`: `🌡 Landsat`-knapp (gated på `landsat_thermal_enabled && landsat_enabled`), `.landsat-lst-overlay`-CSS/toggle, overlegg lagt til i `buildLandsatFrame()` (både Pro-panelet og Std-modus sin Landsat-fallback).
+4. `cleanup.php`, `generate_thumbs.php`, `help.php`, `CLAUDE.md` — alle oppdatert.
+
+**Design-avklaring med bruker før implementering:** valgte eksplisitt rutenett-med-tall (samme stil som S3 LST) fremfor et kontinuerlig fargekart, til tross for at Landsat sin 30m-oppløsning ville tillatt et mye mer detaljert varmekamera-aktig overlegg — for visuell konsistens med det eksisterende LST-overlegget og minst mulig ny kode (gjenbruker `lstColor()`/`imagettftext`/`imagefilledrectangle`-mønsteret direkte).
+
+**Fullstendig verifisert ende-til-ende lokalt** (`php fetch.php --from=2026-07-02 --to=2026-07-18`, ekte USGS M2M-data, OSGeo4W GDAL-stier lagt til PATH kun for denne kjøringen — ingen endring i `config.php` sine `gdal`-kommandoer):
+- 4 ekte Landsat-scener hentet (2026-07-02, -08, -09, -10, skydekke 16-83%) — `LANDSAT-TEMP OK` logget for **alle fire**, ingen feil.
+- Genererte PNG-er verifisert: 1024×1024, truecolor, filstørrelse varierer fornuftig med skydekke (20KB ved 83% sky → 211KB ved 16% sky — færre rutenettceller tegnes når mer er skydekket, som forventet).
+- Visuell inspeksjon av `2026-07-09-landsattemp.png` (16% skydekke): tett, lesbart rutenett av fargede tall (19-37°C, korrekt oransje/oker for sommertemperaturer), papirfargede bakgrunnsbokser, klokkeslett-etikett («12:24 UTC») i nedre venstre hjørne — visuelt konsistent med S3-overlegget, men merkbart finere rutenett som forventet av 1km-innstillingen.
+- S2/S1/S3/kuldemengde-pipelinene kjørte upåvirket i samme kjøring (isolasjonen fungerer i praksis, ikke bare i teorien).
+
+**Gjenstående steg:**
+1. Bruker bekrefter visuelt i nettleser (Std + Pro)
+2. Sett `landsat_thermal_enabled => true` i produksjons-config
+
+---
+
 ## Klokkeslett for satellittpassering stemplet på alle bilder (implementert, verifisert)
 
 Alle bilder (S2, S1, Landsat — S3 LST hadde dette fra før) stemples nå med opptakstidspunktet (UTC) i nedre venstre hjørne, samme papirfarget-boks-stil som LST-tallene. Presisert med brukeren først: dette er passeringstidspunktet (når satellitten faktisk tok bildet), ikke `fetched_at` (når fetch.php lastet det ned — kan være timer/dager senere).

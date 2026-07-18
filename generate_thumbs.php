@@ -42,6 +42,33 @@ foreach ($metadata as &$m) {
         echo "  ✗ {$m['date']}  (feil ved generering)\n";
     }
 }
+unset($m);
+
+// Landsat termisk overlegg (thermal_filename) — sekundært felt, samme logikk som over
+foreach ($metadata as &$m) {
+    if (empty($m['thermal_filename'])) continue;
+
+    $srcPath   = $config['images_dir'] . $m['thermal_filename'];
+    $thumbFile = pathinfo($m['thermal_filename'], PATHINFO_FILENAME) . '.jpg';
+    $thumbPath = $thumbsDir . $thumbFile;
+
+    if (!file_exists($srcPath)) continue;
+
+    if (!$force && file_exists($thumbPath)) {
+        $m['thermal_thumbnail'] = $thumbFile;
+        $skipped++;
+        continue;
+    }
+
+    if ($fetcher->generateThumb($srcPath, $thumbPath)) {
+        $m['thermal_thumbnail'] = $thumbFile;
+        echo "  ✓ {$m['date']} (termisk)\n";
+        $updated++;
+    } else {
+        echo "  ✗ {$m['date']} (termisk, feil ved generering)\n";
+    }
+}
+unset($m);
 
 file_put_contents(
     $config['metadata_file'],
