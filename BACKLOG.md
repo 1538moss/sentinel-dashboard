@@ -1,5 +1,19 @@
 # Backlog
 
+## Isvekst (mm nydannet is siste døgn) — idé, ikke startet
+
+Utvide kuldemengde-overlegget med et anslag på hvor mange **mm ny is** som ble dannet foregående døgn (i tillegg til/ved siden av dagens kuldemengde-sum), for hvert av `frost.locations`-stedene. Skal undersøkes 2026-07-23.
+
+**Mulig datakilde: MET Norway API (`api.met.no`)** — trukket frem som enklest/mest stabile norske kilde for skyparametre, relevant fordi skydekke påvirker utstråling/isvekst om natten (klar himmel gir mer varmetap → raskere isvekst enn overskyet):
+- `cloud_area_fraction` — totalt skydekke i %
+- `cloud_area_fraction_low` / `_medium` / `_high` — skydekke per skylag
+- `cloud_base_height` — skyhøyde
+- `cloud_type` — skytype
+
+**Ikke avklart ennå:** hvilken isvekst-formell som skal brukes (f.eks. Stefan-type gradfrost-formel vs. noe som også vekter skydekke/vind), om `api.met.no` sitt skydekke skal kombineres med det eksisterende Frost-lufttemperaturgrunnlaget eller stå som egen kilde, og hvordan/om dette skal vises i UI (egen etikettlinje? eget tall i grafmodalen?).
+
+---
+
 ## Landsat termisk overlegg — TIRS ST_B10 (implementert, verifisert lokalt — klar for prod-rollout)
 
 Rutenett med fargede temperaturtall fra Landsat sin egen varmesensor (TIRS), samme visuelle idé som Sentinel-3 LST-overlegget men vist oppå Landsat-bildet i stedet for S2, bak `landsat_thermal_enabled`-flagget (default `false`). Siden `ST_B10` kommer fra nøyaktig samme USGS-scene/`entityId` som RGB-Landsat-bildet (ikke et eget katalogsøk), lagres resultatet som `thermal_filename`/`thermal_thumbnail`-felt **på den eksisterende Landsat-metadataoppføringen**, ikke som en egen `sensor`/`type`-entry slik S3 er modellert.
