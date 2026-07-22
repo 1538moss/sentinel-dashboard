@@ -15,3 +15,7 @@ data/
 *.memory/
 Thumbs.db
 .DS_Store
+
+# Arbeidsnotater/eksport for andre prosjekter — ikke del av sentinel-dashboard
+/draft.md
+/*.csv
