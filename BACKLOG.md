@@ -1,33 +1,5 @@
 # Backlog
 
-## Isvekst (mm nydannet is siste døgn) — idé, ikke startet
-
-Utvide kuldemengde-overlegget med et anslag på hvor mange **mm ny is** som ble dannet foregående døgn (i tillegg til/ved siden av dagens kuldemengde-sum), for hvert av `frost.locations`-stedene. Skal undersøkes 2026-07-23.
-
-**Mulig datakilde: MET Norway API (`api.met.no`)** — trukket frem som enklest/mest stabile norske kilde for skyparametre, relevant fordi skydekke påvirker utstråling/isvekst om natten (klar himmel gir mer varmetap → raskere isvekst enn overskyet):
-- `cloud_area_fraction` — totalt skydekke i %
-- `cloud_area_fraction_low` / `_medium` / `_high` — skydekke per skylag
-- `cloud_base_height` — skyhøyde
-- `cloud_type` — skytype
-
-**Ikke avklart ennå:** hvilken isvekst-formel som skal brukes (Stefan-type gradfrost-formel med kvadratrot av kuldemengden, ikke lineær — sjekket og forkastet en lineær variant 2026-07-23 — vs. noe som også vekter skydekke/vind), om `api.met.no` sitt skydekke skal kombineres med det eksisterende Frost-lufttemperaturgrunnlaget eller stå som egen kilde, og hvordan/om dette skal vises i UI (egen etikettlinje? eget tall i grafmodalen?). Bruker ser på en annen formel, kommer tilbake.
-
-**Referanse — dagens `km_needed`-terskler per sted** (fra `data/kuldemengde.json`/`config.php` sin `frost.locations`, °C·døgn for skøytbar is):
-
-| Sted | Stasjon | km_needed |
-|------|---------|-----------|
-| Lødengfjorden | SN17400 (FV120 Rødsund) | 23 |
-| Vanemfjorden | SN17400 (FV120 Rødsund) | 40 |
-| Rosfjorden | SN17400 (FV120 Rødsund) | 170 |
-| Borgebunn | SN17150 (Rygge) | 61 |
-| Amundbukta | SN17150 (Rygge) | 60 |
-| Vaskeberget | SN17150 (Rygge) | 35 |
-| Storefjorden | SN17150 (Rygge) | 120 |
-
-(`data/kuldemengde.json` er tom utenfor sesong — ingen faktisk akkumulert serie å referere til før sesongen 2026/2027 starter 1. oktober.)
-
----
-
 ## Landsat termisk overlegg — TIRS ST_B10 (implementert, verifisert lokalt — klar for prod-rollout)
 
 Rutenett med fargede temperaturtall fra Landsat sin egen varmesensor (TIRS), samme visuelle idé som Sentinel-3 LST-overlegget men vist oppå Landsat-bildet i stedet for S2, bak `landsat_thermal_enabled`-flagget (default `false`). Siden `ST_B10` kommer fra nøyaktig samme USGS-scene/`entityId` som RGB-Landsat-bildet (ikke et eget katalogsøk), lagres resultatet som `thermal_filename`/`thermal_thumbnail`-felt **på den eksisterende Landsat-metadataoppføringen**, ikke som en egen `sensor`/`type`-entry slik S3 er modellert.
