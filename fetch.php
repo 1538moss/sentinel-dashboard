@@ -1711,6 +1711,169 @@ JS;
         ];
     }
 
+    // ── Isvekst (energibalansemodell, Lødengfjorden) — bak isvekst_enabled ──
+    // Kilde: .claude/skills/isprognosemodell_skill/isprognosemodell_skill.md
+    // (svensk isfartslitteratur, "Islära"). Se også
+    // docs/superpowers/specs/2026-07-23-isvekst-lodeng-design.md.
+
+    private const ISVEKST_MOTSTRALNING = [
+        6=>[275,311,346], 5=>[270,305,340], 4=>[265,299,334], 3=>[260,294,328],
+        2=>[255,289,322], 1=>[251,283,316], 0=>[246,278,310], -1=>[242,273,305],
+        -2=>[238,269,300], -3=>[234,264,294], -4=>[230,259,289], -5=>[226,255,284],
+        -6=>[222,251,279], -7=>[218,246,275], -8=>[214,242,270], -9=>[211,238,266],
+        -10=>[207,234,261], -11=>[204,230,257], -12=>[200,226,252], -13=>[197,223,248],
+        -14=>[194,219,244], -15=>[191,215,240], -16=>[187,212,236], -17=>[184,208,232],
+        -18=>[181,205,228], -19=>[178,201,225], -20=>[175,198,221],
+    ]; // kolonner: [Klart, Halvskyet, Helskyet] W/m²
+
+    private const ISVEKST_AVDUNSTNING = [
+        6=>[-1,2.6,6.2], 5=>[-1.7,1.7,5], 4=>[-2.4,0.8,3.9], 3=>[-3,-0.1,2.8],
+        2=>[-3.6,-0.9,1.8], 1=>[-4.2,-1.6,0.9], 0=>[-4.7,-2.4,0], -1=>[-5.2,-3,-0.8],
+        -2=>[-5.7,-3.6,-1.6], -3=>[-6.1,-4.2,-2.3], -4=>[-6.5,-4.8,-3], -5=>[-6.9,-5.3,-3.6],
+        -6=>[-7.3,-5.7,-4.2], -7=>[-7.6,-6.2,-4.8], -8=>[-7.9,-6.6,-5.3], -9=>[-8.2,-7,-5.8],
+        -10=>[-8.5,-7.4,-6.3], -11=>[-8.7,-7.7,-6.7], -12=>[-9,-8,-7.1], -13=>[-9.2,-8.3,-7.4],
+        -14=>[-9.4,-8.6,-7.8], -15=>[-9.6,-8.8,-8.1], -16=>[-9.7,-9.1,-8.4], -17=>[-9.9,-9.3,-8.7],
+        -18=>[-10.1,-9.5,-8.9], -19=>[-10.2,-9.7,-9.1], -20=>[-10.3,-9.8,-9.4],
+    ]; // kolonner: [60%, 80%, 100% luftfuktighet] J/m³
+
+    private const ISVEKST_VARMELEDNING = [
+        6=>9.0, 5=>7.5, 4=>6.0, 3=>4.5, 2=>3.0, 1=>1.5, 0=>0, -1=>-1.5, -2=>-3.0,
+        -3=>-4.5, -4=>-6.0, -5=>-7.5, -6=>-9.0, -7=>-10.6, -8=>-12.1, -9=>-13.6,
+        -10=>-15.1, -11=>-16.6, -12=>-18.1, -13=>-19.6, -14=>-21.1, -15=>-22.6,
+        -16=>-24.1, -17=>-25.6, -18=>-27.1, -19=>-28.6, -20=>-30.2,
+    ]; // J/m³
+
+    // dato => [55°N, 60°N] klarvær W/m² — "Midvinter" (ikke tallfestet i
+    // skillet) tolket som 21. desember (vintersolverv)
+    private const ISVEKST_SOL = [
+        '10-01' => [120, 100], '11-01' => [50, 40], '12-01' => [20, 15],
+        '12-21' => [25, 20], '01-01' => [30, 25],
+    ];
+
+    private function isvekstClampTemp(float $t): float
+    {
+        return max(-20.0, min(6.0, $t));
+    }
+
+    // Lineær interpolasjon mellom heltallsgrader. $col brukes kun for
+    // tabeller med flere kolonner (motstrålning/avdunstning).
+    private function isvekstInterpRow(array $table, float $temp, int $col = 0): float
+    {
+        $t  = $this->isvekstClampTemp($temp);
+        $lo = (int)floor($t);
+        $hi = (int)ceil($t);
+        $vLo = is_array($table[$lo]) ? $table[$lo][$col] : $table[$lo];
+        if ($lo === $hi) return $vLo;
+        $vHi = is_array($table[$hi]) ? $table[$hi][$col] : $table[$hi];
+        return $vLo + ($vHi - $vLo) * ($t - $lo);
+    }
+
+    private function isvekstSkyIndex(string $skyCategory): int
+    {
+        return match ($skyCategory) {
+            'Klart'     => 0,
+            'Halvskyet' => 1,
+            default     => 2, // Helskyet
+        };
+    }
+
+    // Skydekke i octas (0-8, Frost sitt mean(cloud_area_fraction P1D)) →
+    // tabellkategori. Ingen offisiell grense oppgitt i skillet — jevn tredeling.
+    private function isvekstCloudCategory(float $octas): string
+    {
+        if ($octas <= 2) return 'Klart';
+        if ($octas <= 5) return 'Halvskyet';
+        return 'Helskyet';
+    }
+
+    // Relativ luftfuktighet (%) fra duggpunkt og lufttemperatur (Magnus-formel)
+    // — brukt fordi SN17400 (Lødengs stasjon) ikke har et sammenhengende
+    // RH-element, men har duggpunkt kontinuerlig siden 2016.
+    private function isvekstRelativeHumidityFromDewpoint(float $tempC, float $dewC): float
+    {
+        $es = fn(float $t) => exp((17.625 * $t) / (243.04 + $t));
+        $rh = 100 * $es($dewC) / $es($tempC);
+        return max(0.0, min(100.0, $rh));
+    }
+
+    private function isvekstMotstralningLookup(float $temp, string $skyCategory): float
+    {
+        return $this->isvekstInterpRow(self::ISVEKST_MOTSTRALNING, $temp, $this->isvekstSkyIndex($skyCategory));
+    }
+
+    private function isvekstVarmeledningLookup(float $temp): float
+    {
+        return $this->isvekstInterpRow(self::ISVEKST_VARMELEDNING, $temp);
+    }
+
+    // Interpolerer mellom 60/80/100%-kolonnene basert på faktisk luftfuktighet.
+    private function isvekstAvdunstningLookup(float $temp, float $rh): float
+    {
+        $rh = max(60.0, min(100.0, $rh));
+        $v60  = $this->isvekstInterpRow(self::ISVEKST_AVDUNSTNING, $temp, 0);
+        $v80  = $this->isvekstInterpRow(self::ISVEKST_AVDUNSTNING, $temp, 1);
+        $v100 = $this->isvekstInterpRow(self::ISVEKST_AVDUNSTNING, $temp, 2);
+        if ($rh <= 80) {
+            $frac = ($rh - 60) / 20;
+            return $v60 + ($v80 - $v60) * $frac;
+        }
+        $frac = ($rh - 80) / 20;
+        return $v80 + ($v100 - $v80) * $frac;
+    }
+
+    // Interpolerer solinnstrålingstabellen på dato (mellom tabellpunktene) og
+    // breddegrad (mellom 55°N/60°N-kolonnene), ganger med skyfaktor og
+    // kärnis sin 20% refleksjon.
+    private function isvekstSolLookup(DateTime $date, float $lat, string $skyCategory): float
+    {
+        $year = (int)$date->format('Y');
+        $points = [
+            [new DateTime("$year-10-01"), self::ISVEKST_SOL['10-01']],
+            [new DateTime("$year-11-01"), self::ISVEKST_SOL['11-01']],
+            [new DateTime("$year-12-01"), self::ISVEKST_SOL['12-01']],
+            [new DateTime("$year-12-21"), self::ISVEKST_SOL['12-21']],
+            [new DateTime(($year + 1) . '-01-01'), self::ISVEKST_SOL['01-01']],
+        ];
+
+        $ts = $date->getTimestamp();
+        $clear = 0.0;
+        for ($i = 0; $i < count($points) - 1; $i++) {
+            $t0 = $points[$i][0]->getTimestamp();
+            $t1 = $points[$i + 1][0]->getTimestamp();
+            if ($ts < $t0 || $ts > $t1) continue;
+            $frac = ($ts - $t0) / ($t1 - $t0);
+            $v55 = $points[$i][1][0] + ($points[$i + 1][1][0] - $points[$i][1][0]) * $frac;
+            $v60 = $points[$i][1][1] + ($points[$i + 1][1][1] - $points[$i][1][1]) * $frac;
+            $latFrac = max(0.0, min(1.0, ($lat - 55) / 5));
+            $clear = $v55 + ($v60 - $v55) * $latFrac;
+            break;
+        }
+
+        $cloudFactor = match ($skyCategory) {
+            'Klart'     => 1.0,
+            'Halvskyet' => 0.70,
+            default     => 0.40, // Helskyet — skillets eksplisitte regel
+        };
+        return $clear * $cloudFactor * 0.80; // 0.80 = kärnis sin 20% refleksjon
+    }
+
+    // Døgnvekst i mm (kan bli negativ = smelting) for gitt døgnmiddel-input.
+    // Ren funksjon — verifisert mot skillets eksempel-beregning i
+    // _test_isvekst_formula.php.
+    public function computeIsvekstGrowthMm(
+        float $temp, float $rh, float $wind, string $skyCategory, DateTime $date, float $lat
+    ): float {
+        $sol      = $this->isvekstSolLookup($date, $lat, $skyCategory);
+        $utstral  = -309.0;
+        $motstral = $this->isvekstMotstralningLookup($temp, $skyCategory);
+        $varmeled = $this->isvekstVarmeledningLookup($temp);
+        $avdunst  = $this->isvekstAvdunstningLookup($temp, $rh);
+
+        $varmetransport = $sol + $utstral + $motstral + $wind * ($varmeled + $avdunst);
+        $tillvaxtMmPerHour = $varmetransport / -85;
+        return $tillvaxtMmPerHour * 24;
+    }
+
     // ── Metadata ──────────────────────────────────────────────────────────────
     public function loadMetadata(): array
     {
