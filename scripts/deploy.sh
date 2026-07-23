@@ -41,6 +41,7 @@ rsync -avz --delete \
     --exclude='images/' \
     --exclude='data/' \
     --exclude='scripts/' \
+    --exclude='docs/' \
     --exclude='*.env' \
     --exclude='.sentinel.env' \
     "$LOCAL_DIR/" "${SERVER_USER}@${SERVER_HOST}:${APP_DIR}/"
