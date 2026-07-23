@@ -64,13 +64,13 @@ html,body{height:100%;overflow:hidden;background:var(--paper);color:var(--ink)}
   font-family:var(--font-mono);font-size:11px;color:var(--muted);
 }
 #counter{color:var(--ink);letter-spacing:.08em}
-.fetch-btn,.filter-btn,.lst-btn,.frost-btn,.landsat-lst-btn{
+.fetch-btn,.filter-btn,.lst-btn,.frost-btn,.landsat-lst-btn,.isvekst-btn{
   background:transparent;border:1px solid var(--ink);color:var(--ink);
   padding:6px 12px;font-size:10px;letter-spacing:.18em;text-transform:uppercase;
   font-family:var(--font-mono);cursor:pointer;
   transition:background .15s,color .15s,border-color .15s;
 }
-.fetch-btn:hover,.filter-btn:hover,.lst-btn:hover,.frost-btn:hover,.landsat-lst-btn:hover{background:var(--ink);color:var(--paper)}
+.fetch-btn:hover,.filter-btn:hover,.lst-btn:hover,.frost-btn:hover,.landsat-lst-btn:hover,.isvekst-btn:hover{background:var(--ink);color:var(--paper)}
 .fetch-btn:disabled{opacity:.4;cursor:not-allowed;background:transparent;color:var(--ink)}
 .filter-btn.active{background:var(--accent);border-color:var(--accent);color:var(--paper)}
 .lst-btn.active{background:var(--thermal);border-color:var(--thermal);color:var(--paper)}
@@ -84,7 +84,7 @@ html,body{height:100%;overflow:hidden;background:var(--paper);color:var(--ink)}
 }
 .help-btn:hover{background:var(--ink);color:var(--paper)}
 .fetch-btn:focus-visible,.filter-btn:focus-visible,.pro-btn:focus-visible,.lst-btn:focus-visible,
-.frost-btn:focus-visible,.landsat-lst-btn:focus-visible,
+.frost-btn:focus-visible,.landsat-lst-btn:focus-visible,.isvekst-btn:focus-visible,
 .help-btn:focus-visible,.nav:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .next-badge{
   font-family:var(--font-mono);font-size:10px;letter-spacing:.06em;
@@ -217,6 +217,24 @@ body.km-on .km-label{display:flex}
 .km-chart .end-lbl{fill:var(--ink);font-family:var(--font-mono);font-size:10px;font-weight:700;letter-spacing:.05em}
 .km-chart .xhair{stroke:var(--line);stroke-width:1;opacity:.6}
 .km-chart .hover-dot{fill:var(--frost);stroke:var(--paper);stroke-width:2}
+.isvekst-chart{display:block;width:100%;height:auto}
+.isvekst-chart .grid{stroke:var(--hair);stroke-width:1}
+.isvekst-chart .axis-lbl{fill:var(--muted);font-family:var(--font-mono);font-size:9px;letter-spacing:.05em}
+.isvekst-chart .area{fill:var(--blue);opacity:.14}
+.isvekst-chart .series{fill:none;stroke:var(--blue);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.isvekst-chart .end-dot{fill:var(--blue)}
+.isvekst-chart .end-lbl{fill:var(--ink);font-family:var(--font-mono);font-size:10px;font-weight:700;letter-spacing:.05em}
+.isvekst-chart .xhair{stroke:var(--line);stroke-width:1;opacity:.6}
+.isvekst-chart .hover-dot{fill:var(--blue);stroke:var(--paper);stroke-width:2}
+.isvekst-strip{display:block;width:100%;height:34px;margin-top:2px}
+.isvekst-strip .bar-growth{fill:var(--green)}
+.isvekst-strip .bar-melt{fill:var(--red)}
+.isvekst-strip .zero{stroke:var(--hair);stroke-width:1}
+.isvekst-legend{display:flex;gap:14px;font-size:9.5px;color:var(--muted);margin:4px 0 2px;font-family:var(--font-mono)}
+.isvekst-legend span{display:inline-flex;align-items:center;gap:5px}
+.isvekst-legend i{width:8px;height:8px;display:inline-block}
+.isvekst-legend .g{background:var(--green)}
+.isvekst-legend .r{background:var(--red)}
 .km-tip{
   position:absolute;display:none;pointer-events:none;
   background:var(--ink);color:var(--paper);
@@ -409,7 +427,7 @@ body.km-on .km-label{display:flex}
   .next-badge{display:none}
   #counter{display:none}
   .hdr-right{gap:8px}
-  .fetch-btn,.filter-btn,.lst-btn,.frost-btn,.landsat-lst-btn{padding:5px 8px;font-size:9px;letter-spacing:.1em}
+  .fetch-btn,.filter-btn,.lst-btn,.frost-btn,.landsat-lst-btn,.isvekst-btn{padding:5px 8px;font-size:9px;letter-spacing:.1em}
   .km-label{font-size:9px;padding:3px 6px}
   .km-label .km-val{font-size:14px}
   .info-bar{padding:0 12px;gap:12px}
@@ -579,6 +597,13 @@ body.pro-mode{
       ❄ Kulde
     </button>
     <?php endif; ?>
+    <?php if ($cfg['isvekst_enabled'] ?? false): ?>
+    <!-- Starter skjult — JS viser knappen kun når isvekst-serien har data. Eksperimentell. -->
+    <button class="isvekst-btn" id="isvekst-btn" onclick="openIsvekstChart()" style="display:none"
+            title="Vis beregnet isvekst (energibalansemodell, eksperimentell — kun Lødengfjorden)">
+      🧊 Isvekst
+    </button>
+    <?php endif; ?>
     <button class="fetch-btn" id="fetch-btn" onclick="triggerFetch()" title="Hent nye bilder fra Copernicus">
       ↓ Hent
     </button>
@@ -617,6 +642,7 @@ const LANDSAT_ENABLED = <?= json_encode($cfg['landsat_enabled'] ?? false) ?>;
 const S3_LST_ENABLED = <?= json_encode($cfg['s3_lst_enabled'] ?? false) ?>;
 const LANDSAT_THERMAL_ENABLED = <?= json_encode($cfg['landsat_thermal_enabled'] ?? false) ?>;
 const KULDEMENGDE_ENABLED = <?= json_encode($cfg['kuldemengde_enabled'] ?? false) ?>;
+const ISVEKST_ENABLED = <?= json_encode($cfg['isvekst_enabled'] ?? false) ?>;
 const KM_WARN_FRACTION = 0.05;  // andel av terskelen som gjenstår → oransje tall
 let allImages = [];
 let primaryImages = [];
@@ -631,6 +657,7 @@ let lstOverlayActive = false; // ikke lagret i localStorage — nullstilles ved 
 let landsatLstActive = false; // Landsat-termisk overlegg — heller ikke persistert
 let kmActive = false;         // kuldemengde-overlegg — heller ikke persistert
 let kmLocations = [];         // steder med ikke-tom kuldemengde-serie (fra ?action=list)
+let isvekstData = null;       // { name, series, ... } for Lødengfjorden, eller null
 let proMode = localStorage.getItem('proMode') === '1';
 
 // ── Data ────────────────────────────────────────────────────────────────────
@@ -660,6 +687,12 @@ async function loadImages() {
       .filter(l => l.dates.length > 0);
     const frostBtn = document.getElementById('frost-btn');
     if (frostBtn) frostBtn.style.display = kmLocations.length ? '' : 'none';
+
+    // Isvekst: eksperimentell, kun ett sted (Lødengfjorden) i v1
+    const ivLoc = (ISVEKST_ENABLED && data.isvekst?.locations?.[0]) || null;
+    isvekstData = (ivLoc && Object.keys(ivLoc.series || {}).length) ? ivLoc : null;
+    const isvekstBtn = document.getElementById('isvekst-btn');
+    if (isvekstBtn) isvekstBtn.style.display = isvekstData ? '' : 'none';
 
     images = filterActive ? applyFilter(primaryImages) : primaryImages;
 
@@ -976,6 +1009,116 @@ function openKmChart(loc, endKey) {
     hdot.setAttribute('cx', cx); hdot.setAttribute('cy', cy);
     hdot.removeAttribute('visibility');
     tip.textContent = `${fmtDM(best.d)} · ${fmtKm(best.km)}`;
+    tip.style.display = 'block';
+    const mr = modal.getBoundingClientRect();
+    tip.style.left = Math.min(e.clientX - mr.left + 12, mr.width - tip.offsetWidth - 8) + 'px';
+    tip.style.top  = (e.clientY - mr.top - 28) + 'px';
+  });
+  chart.addEventListener('mouseleave', () => {
+    xhair.setAttribute('visibility', 'hidden');
+    hdot.setAttribute('visibility', 'hidden');
+    tip.style.display = 'none';
+  });
+}
+
+// Isvekst-graf (energibalansemodell, eksperimentell): kumulativ mm is
+// 1.okt-31.des, med en daglig vekst/smelte-strip under. Egen, isolert
+// funksjon (deler kun modal-chrome-CSS-klasser med openKmChart(), ikke
+// tegnelogikk) — enkelt å fjerne igjen om eksperimentet forkastes.
+function openIsvekstChart() {
+  if (!isvekstData) return;
+  const loc = isvekstData;
+  const dates = Object.keys(loc.series).sort();
+  if (!dates.length) return;
+  const pts = dates.map(d => ({ d, ...loc.series[d] }));
+
+  const W = 520, H = 220, ML = 36, MR = 14, MT = 12, MB = 24;
+  const iw = W - ML - MR, ih = H - MT - MB;
+  const start = new Date(dates[0] + 'T00:00:00Z');
+  const end   = new Date(dates[dates.length - 1] + 'T00:00:00Z');
+  const t0 = start.getTime(), t1 = end.getTime();
+  const rawMax = Math.max(...pts.map(p => p.cum_mm), 10) * 1.1;
+  const tq = rawMax / 4, tp = Math.pow(10, Math.floor(Math.log10(tq)));
+  const step = tp * [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].find(m => m * tp >= tq);
+  const yMax = step * 4;
+  const px = d => ML + iw * (new Date(d + 'T00:00:00Z').getTime() - t0) / (t1 - t0 || 1);
+  const py = v => MT + ih * (1 - v / yMax);
+  const fmtDM = d => `${d.slice(8,10)}.${d.slice(5,7)}`;
+  const fmtMm = v => v.toFixed(1).replace('.', ',');
+
+  let svg = '';
+  for (let i = 1; i <= 4; i++) {
+    const v = yMax * i / 4, y = py(v);
+    svg += `<line class="grid" x1="${ML}" y1="${y}" x2="${W - MR}" y2="${y}"/>` +
+           `<text class="axis-lbl" x="${ML - 5}" y="${y + 3}" text-anchor="end">${Math.round(v)}</text>`;
+  }
+  svg += `<line class="grid" x1="${ML}" y1="${py(0)}" x2="${W - MR}" y2="${py(0)}"/>`;
+  const m = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1));
+  if (m < start) m.setUTCMonth(m.getUTCMonth() + 1);
+  for (; m <= end; m.setUTCMonth(m.getUTCMonth() + 1)) {
+    const d = m.toISOString().slice(0, 10);
+    svg += `<text class="axis-lbl" x="${px(d)}" y="${H - 8}" text-anchor="middle">${fmtDM(d)}</text>`;
+  }
+  const areaPath = `M${px(pts[0].d).toFixed(1)},${py(0).toFixed(1)} ` +
+    pts.map(p => `L${px(p.d).toFixed(1)},${py(p.cum_mm).toFixed(1)}`).join(' ') +
+    ` L${px(pts[pts.length - 1].d).toFixed(1)},${py(0).toFixed(1)} Z`;
+  svg += `<path class="area" d="${areaPath}"/>`;
+  svg += `<path class="series" d="${pts.map((p, i) => `${i ? 'L' : 'M'}${px(p.d).toFixed(1)} ${py(p.cum_mm).toFixed(1)}`).join(' ')}"/>`;
+  const last = pts[pts.length - 1];
+  svg += `<circle class="end-dot" cx="${px(last.d)}" cy="${py(last.cum_mm)}" r="3.5"/>` +
+         `<text class="end-lbl" x="${px(last.d) - 6}" y="${py(last.cum_mm) - 8}" text-anchor="end">${fmtMm(last.cum_mm)} mm</text>`;
+  svg += `<line class="xhair" y1="${MT}" y2="${MT + ih}" visibility="hidden"/>` +
+         `<circle class="hover-dot" r="4" visibility="hidden"/>`;
+
+  const maxAbs = Math.max(...pts.map(p => Math.abs(p.growth_mm)), 1);
+  const bw = iw / pts.length;
+  let stripSvg = `<line class="zero" x1="${ML}" y1="17" x2="${W - MR}" y2="17"/>`;
+  pts.forEach((p, i) => {
+    const x = ML + i * bw;
+    const h = (Math.abs(p.growth_mm) / maxAbs) * 14;
+    const y = p.growth_mm >= 0 ? 17 - h : 17;
+    stripSvg += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(bw - 0.5, 0.5).toFixed(1)}" height="${h.toFixed(1)}" class="${p.growth_mm >= 0 ? 'bar-growth' : 'bar-melt'}"/>`;
+  });
+
+  const backdrop = document.createElement('div');
+  backdrop.className = 'km-modal-backdrop';
+  const modal = document.createElement('div');
+  modal.className = 'km-modal';
+  modal.innerHTML =
+    `<button class="km-modal-close" title="Lukk">×</button>` +
+    `<h3>🧊 ${loc.name}</h3>` +
+    `<div class="km-modal-sub">Beregnet isvekst (mm) ${fmtDM(dates[0])}–${fmtDM(dates[dates.length - 1])}` +
+    ` · eksperimentell energibalansemodell</div>` +
+    `<svg class="isvekst-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Beregnet istykkelse, ${loc.name}">${svg}</svg>` +
+    `<svg class="isvekst-strip" viewBox="0 0 ${W} 34">${stripSvg}</svg>` +
+    `<div class="isvekst-legend"><span><i class="g"></i>vekstdøgn</span><span><i class="r"></i>smeltedøgn</span></div>` +
+    `<div class="km-tip"></div>`;
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+
+  const close = () => { document.body.removeChild(backdrop); document.removeEventListener('keydown', onKey, true); };
+  const onKey = e => { if (e.key !== 'Escape') return; e.stopPropagation(); close(); };
+  backdrop.addEventListener('click', close);
+  modal.addEventListener('click', e => e.stopPropagation());
+  modal.querySelector('.km-modal-close').addEventListener('click', close);
+  document.addEventListener('keydown', onKey, true);
+
+  const chart = modal.querySelector('.isvekst-chart');
+  const tip   = modal.querySelector('.km-tip');
+  const xhair = chart.querySelector('.xhair');
+  const hdot  = chart.querySelector('.hover-dot');
+  chart.addEventListener('mousemove', e => {
+    const r = chart.getBoundingClientRect();
+    const mx = (e.clientX - r.left) * W / r.width;
+    let best = pts[0], bd = Infinity;
+    for (const p of pts) { const d = Math.abs(px(p.d) - mx); if (d < bd) { bd = d; best = p; } }
+    const cx = px(best.d), cy = py(best.cum_mm);
+    xhair.setAttribute('x1', cx); xhair.setAttribute('x2', cx);
+    xhair.removeAttribute('visibility');
+    hdot.setAttribute('cx', cx); hdot.setAttribute('cy', cy);
+    hdot.removeAttribute('visibility');
+    const sign = best.growth_mm >= 0 ? '+' : '';
+    tip.textContent = `${fmtDM(best.d)} · ${fmtMm(best.cum_mm)} mm (${sign}${fmtMm(best.growth_mm)}) · ${best.temp}°C ${best.sky}`;
     tip.style.display = 'block';
     const mr = modal.getBoundingClientRect();
     tip.style.left = Math.min(e.clientX - mr.left + 12, mr.width - tip.offsetWidth - 8) + 'px';
