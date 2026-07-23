@@ -1911,6 +1911,111 @@ JS;
         return $tillvaxtMmPerHour * 24;
     }
 
+    // Enklere enn kmSeasonFor(): vinduet 1.okt-31.des ligger alltid innenfor
+    // ett kalenderår, ingen årsovergang å håndtere. Returnerer null utenfor
+    // vinduet (f.eks. en --isvekst=2026-03-15-kjøring skal ikke gjøre noe).
+    private function isvekstWindowFor(string $date): ?array
+    {
+        $cfg     = $this->config['isvekst'] ?? [];
+        $startMD = $cfg['window_start'] ?? '10-01';
+        $endMD   = $cfg['window_end']   ?? '12-31';
+        $y  = (int)substr($date, 0, 4);
+        $md = substr($date, 5);
+        if ($md < $startMD || $md > $endMD) return null;
+        return ['start' => "$y-$startMD", 'end' => "$y-$endMD"];
+    }
+
+    // Bygg og skriv data/isvekst.json for vinduet $asOf tilhører. Idempotent:
+    // overskriver alltid hele filen (billig — alle inputs er døgnaggregater
+    // eller lette PT10M-snitt). Utenfor vinduet skrives tomme serier, samme
+    // prinsipp som updateKuldemengde() utenfor sesong.
+    public function updateIsvekst(?string $asOf = null): array
+    {
+        $asOf = $asOf ?: date('Y-m-d');
+        $cfg  = $this->config['isvekst'] ?? [];
+        $file = $cfg['data_file'] ?? ($this->config['data_dir'] . 'isvekst.json');
+        $locs = array_filter($this->config['frost']['locations'] ?? [], fn($l) => ($l['isvekst'] ?? false) === true);
+
+        $window = $this->isvekstWindowFor($asOf);
+
+        $out = [
+            'window_start' => $window['start'] ?? null,
+            'window_end'   => $window['end']   ?? null,
+            'unit'         => 'mm',
+            'updated_at'   => date('c'),
+            'locations'    => [],
+        ];
+
+        $days = 0;
+        foreach ($locs as $loc) {
+            $series  = [];
+            $missing = [];
+            $interp  = [];
+
+            if ($window !== null) {
+                $from = $window['start'];
+                $toEx = date('Y-m-d', strtotime(min($asOf, $window['end']) . ' +1 day'));
+                $station      = $loc['station'];
+                $cloudStation = $cfg['cloud_station'] ?? 'SN17150';
+
+                [$temp, $tempInterp]   = $this->fillFrostGaps($this->fetchFrostDailyMeans($station, $from, $toEx));
+                [$dew,  $dewInterp]    = $this->fillFrostGaps($this->fetchFrostDailyMeans($station, $from, $toEx, 'mean(dew_point_temperature P1D)'));
+                [$wind, $windInterp]   = $this->fillFrostGaps($this->fetchFrostRawDailyAverage($station, 'wind_speed', $from, $toEx));
+                [$cloud, $cloudInterp] = $this->fillFrostGaps($this->fetchFrostDailyMeans($cloudStation, $from, $toEx, 'mean(cloud_area_fraction P1D)'));
+                $interpDays = array_flip(array_merge($tempInterp, $dewInterp, $windInterp, $cloudInterp));
+
+                $sum  = 0.0;
+                $day  = new DateTime($from);
+                $last = new DateTime(min($asOf, $window['end']));
+                while ($day <= $last) {
+                    $d = $day->format('Y-m-d');
+                    if (isset($temp[$d], $dew[$d], $wind[$d], $cloud[$d])) {
+                        $rh     = $this->isvekstRelativeHumidityFromDewpoint($temp[$d], $dew[$d]);
+                        $sky    = $this->isvekstCloudCategory($cloud[$d]);
+                        $growth = $this->computeIsvekstGrowthMm($temp[$d], $rh, $wind[$d], $sky, clone $day, (float)$loc['lat']);
+                        $sum    = max(0.0, $sum + $growth);
+                        $series[$d] = [
+                            'growth_mm' => round($growth, 2),
+                            'cum_mm'    => round($sum, 1),
+                            'temp'      => round($temp[$d], 1),
+                            'rh'        => round($rh, 0),
+                            'wind'      => round($wind[$d], 1),
+                            'sky'       => $sky,
+                        ];
+                        if (isset($interpDays[$d])) {
+                            $series[$d]['interpolated'] = true;
+                            $interp[] = $d;
+                        }
+                    } else {
+                        $missing[] = $d;
+                    }
+                    $day->modify('+1 day');
+                }
+            }
+
+            $out['locations'][] = [
+                'name'              => $loc['name'],
+                'lat'               => $loc['lat'],
+                'lon'               => $loc['lon'],
+                'station'           => $loc['station'],
+                'station_name'      => $loc['station_name'] ?? $loc['station'],
+                'missing_days'      => $missing,
+                'interpolated_days' => $interp,
+                'series'            => $series === [] ? new stdClass() : $series,
+            ];
+            $days = max($days, count($series));
+        }
+
+        $tmp = $file . '.tmp.' . getmypid();
+        file_put_contents($tmp, json_encode($out, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE), LOCK_EX);
+        rename($tmp, $file);
+
+        return [
+            'window' => $window ? "{$window['start']} → {$window['end']}" : 'utenfor vindu',
+            'days'   => $days,
+        ];
+    }
+
     // ── Metadata ──────────────────────────────────────────────────────────────
     public function loadMetadata(): array
     {
@@ -2419,6 +2524,24 @@ if (PHP_SAPI === 'cli' && realpath($argv[0]) === __FILE__) {
         try {
             $km = $fetcher->updateKuldemengde($args['kuldemengde']);
             echo "Kuldemengde oppdatert: {$km['season']}  ({$km['days']} døgn, {$km['missing']} mangler, {$km['interpolated']} interpolert, {$km['forecast']} varseldøgn)\n";
+            exit(0);
+        } catch (RuntimeException $e) {
+            echo "FEIL: " . $e->getMessage() . "\n";
+            exit(1);
+        }
+    }
+
+    // --isvekst=YYYY-MM-DD: oppdater kun isvekst-filen og avslutt. Eksperimentell
+    // — se docs/superpowers/specs/2026-07-23-isvekst-lodeng-design.md. Datoen
+    // styrer hvilket vindu (1.okt-31.des samme år) som beregnes.
+    if (isset($args['isvekst'])) {
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $args['isvekst'])) {
+            echo "Bruk: php fetch.php --isvekst=YYYY-MM-DD\n";
+            exit(1);
+        }
+        try {
+            $iv = $fetcher->updateIsvekst($args['isvekst']);
+            echo "Isvekst oppdatert: {$iv['window']}  ({$iv['days']} døgn)\n";
             exit(0);
         } catch (RuntimeException $e) {
             echo "FEIL: " . $e->getMessage() . "\n";
