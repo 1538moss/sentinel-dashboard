@@ -2406,6 +2406,20 @@ JS;
             }
         }
 
+        // ── Isvekst (kun når isvekst_enabled === true) — eksperimentell ─────
+        // Uavhengig av bildepipelinene og av kuldemengde — en feilende
+        // Frost-kobling her påvirker aldri noe annet.
+        if (($this->config['isvekst_enabled'] ?? false) === true) {
+            try {
+                $iv = $this->updateIsvekst();
+                $stats['isvekst_updated'] = true;
+                $this->log("ISVEKST OK  {$iv['window']}  ({$iv['days']} døgn)");
+            } catch (RuntimeException $e) {
+                $stats['isvekst_errors'][] = $e->getMessage();
+                $this->log("ISVEKST FEIL  " . $e->getMessage());
+            }
+        }
+
         usort($metadata, fn($a, $b) => strcmp($b['date'], $a['date']));
         $this->saveMetadata($metadata);
 
@@ -2418,7 +2432,10 @@ JS;
         $kmsum = ($this->config['kuldemengde_enabled'] ?? false)
             ? ('KM: ' . ($stats['km_updated'] ? 'oppdatert' : 'feilet'))
             : 'KM: av';
-        $this->log("=== Ferdig — $s2sum | $s1sum | $lsum | $s3sum | $kmsum | {$stats['deleted']} slettet ===");
+        $ivsum = ($this->config['isvekst_enabled'] ?? false)
+            ? ('ISVEKST: ' . (($stats['isvekst_updated'] ?? false) ? 'oppdatert' : 'feilet'))
+            : 'ISVEKST: av';
+        $this->log("=== Ferdig — $s2sum | $s1sum | $lsum | $s3sum | $kmsum | $ivsum | {$stats['deleted']} slettet ===");
 
         return $stats;
     }
