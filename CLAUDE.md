@@ -124,7 +124,7 @@ OAuth2-klient opprettes på: https://shapps.dataspace.copernicus.eu/dashboard/#/
 9. Når `landsat_enabled` er `true`: samme flyt for Landsat 8-9 via USGS M2M (se eget avsnitt under), uavhengig av S2/S1 — en feilende M2M-kobling logges og hopper over Landsat for hele kjøringen, uten å påvirke S2/S1
 9b. Når i tillegg `landsat_thermal_enabled` er `true`: rett etter et vellykket Landsat-bilde hentes samme scenes TIRS-bånd (ST_B10) og rutenett-overlegget genereres (se eget avsnitt under) — egen try/catch per dato, en feilende thermal-henting påvirker aldri det allerede lagrede Landsat-bildet
 10. Når `s3_lst_enabled` er `true`: uavhengig pipeline for Sentinel-3 LST (se eget avsnitt under) — påvirker aldri S2/S1/Landsat om noe feiler
-11. Når `kuldemengde_enabled` er `true`: uavhengig Frost-oppdatering av `data/kuldemengde.json` (se eget avsnitt under) — påvirker aldri bildepipelinene eller kuldemengde om noe feiler
+11. Når `kuldemengde_enabled` er `true`: uavhengig Frost-oppdatering av `data/kuldemengde.json` (se eget avsnitt under) — påvirker aldri bildepipelinene om noe feiler
 12. Når `isvekst_enabled` er `true`: uavhengig, eksperimentell Frost-basert isvekst-beregning for Lødengfjorden (se eget avsnitt under) — påvirker aldri bildepipelinene eller kuldemengde om noe feiler
 
 ---
