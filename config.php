@@ -110,7 +110,8 @@ return [
         // regnes som skøytbar på stedet — vises som «trengs/målt» i etiketten
         'locations'    => [
             ['name' => 'Lødengfjorden', 'lat' => 59.4857391, 'lon' => 10.7860853,
-             'station' => 'SN17400', 'station_name' => 'FV120 Rødsund', 'km_needed' => 23],
+             'station' => 'SN17400', 'station_name' => 'FV120 Rødsund', 'km_needed' => 23,
+             'isvekst' => true],
             ['name' => 'Borgebunn', 'lat' => 59.3580611, 'lon' => 10.9224714,
              'station' => 'SN17150', 'station_name' => 'Rygge', 'km_needed' => 61],
             ['name' => 'Amundbukta', 'lat' => 59.3699087, 'lon' => 10.8408080,
@@ -124,6 +125,19 @@ return [
             ['name' => 'Rosfjorden', 'lat' => 59.4436900, 'lon' => 10.8926300,
              'station' => 'SN17400', 'station_name' => 'FV120 Rødsund', 'km_needed' => 170],
         ],
+    ],
+
+    // ── Isvekst (energibalansemodell) — bak isvekst_enabled-flagget ──────────
+    // Eksperimentell v1: kun Lødengfjorden, kun 1.okt-31.des (ikke hele
+    // okt-mai-sesongen som kuldemengde). Se
+    // .claude/skills/isprognosemodell_skill/isprognosemodell_skill.md og
+    // docs/superpowers/specs/2026-07-23-isvekst-lodeng-design.md.
+    'isvekst_enabled' => false,   // default av — eksperimentell, ikke live i produksjon
+    'isvekst' => [
+        'data_file'     => __DIR__ . '/data/isvekst.json',
+        'window_start'  => '10-01',   // MM-DD
+        'window_end'    => '12-31',   // MM-DD — bevisst kortere enn frost.season_end (05-31)
+        'cloud_station' => 'SN17150', // Rygge — Lødengs egen stasjon (SN17400) måler ikke skydekke
     ],
 
     // ── Geografisk område (WGS84) ────────────────────────────────────────────

@@ -55,12 +55,21 @@ try {
                     $km = json_decode(file_get_contents($kmFile), true);
                 }
             }
+            // Isvekst-serien (eksperimentell) — samme mønster som kuldemengde
+            $iv = null;
+            if (($config['isvekst_enabled'] ?? false) === true) {
+                $ivFile = $config['isvekst']['data_file'] ?? ($config['data_dir'] . 'isvekst.json');
+                if (file_exists($ivFile)) {
+                    $iv = json_decode(file_get_contents($ivFile), true);
+                }
+            }
             echo json_encode([
                 'ok'          => true,
                 'images'      => $metadata,
                 'aoi'         => $config['aoi']['name'],
                 'count'       => count($metadata),
                 'kuldemengde' => $km,
+                'isvekst'     => $iv,
             ]);
             break;
 
