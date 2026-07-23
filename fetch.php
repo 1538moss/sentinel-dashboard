@@ -1462,9 +1462,9 @@ JS;
 
     // Døgnmiddeltemperaturer for én stasjon → [dato => °C]. referencetime-intervallet
     // er slutt-eksklusivt hos Frost.
-    private function fetchFrostDailyMeans(string $station, string $from, string $toExclusive): array
+    private function fetchFrostDailyMeans(string $station, string $from, string $toExclusive, ?string $element = null): array
     {
-        $element = $this->config['frost']['element'] ?? 'mean(air_temperature P1D)';
+        $element = $element ?? ($this->config['frost']['element'] ?? 'mean(air_temperature P1D)');
         $query = [
             'sources'       => $station,
             'elements'      => $element,
@@ -1504,6 +1504,43 @@ JS;
             }
         }
         return array_map(fn($m) => $m['value'], $means);
+    }
+
+    // Rå (sub-daglige) observasjoner → dato => snitt for UTC-kalenderdøgnet.
+    // Brukt for elementer SN17400 ikke har et ferdig døgnsnitt for (vind),
+    // samme grupperingsteknikk som fetchForecastDailyMeans() bruker for
+    // locationforecast.
+    private function fetchFrostRawDailyAverage(string $station, string $element, string $from, string $toExclusive): array
+    {
+        $query = [
+            'sources'       => $station,
+            'elements'      => $element,
+            'referencetime' => "$from/$toExclusive",
+        ];
+        [$code, $body] = $this->frostRequest($query);
+        if ($code === 404 || $code === 412) return [];   // ingen data i perioden
+        if ($code === 401 || $code === 403) {
+            throw new RuntimeException("Frost avviste forespørselen (HTTP $code) — sjekk FROST_CLIENT_ID i .sentinel.env");
+        }
+        if ($code !== 200) {
+            throw new RuntimeException("Frost-forespørsel feilet (HTTP $code): " . substr((string)$body, 0, 300));
+        }
+
+        $data  = json_decode($body, true);
+        $byDay = [];
+        foreach ($data['data'] ?? [] as $item) {
+            $date = substr($item['referenceTime'] ?? '', 0, 10);
+            if ($date === '') continue;
+            foreach ($item['observations'] ?? [] as $obs) {
+                if (($obs['elementId'] ?? '') !== $element) continue;
+                if ((int)($obs['qualityCode'] ?? 0) >= 6) continue;
+                if (!isset($obs['value']) || !is_numeric($obs['value'])) continue;
+                $byDay[$date][] = (float)$obs['value'];
+            }
+        }
+        $means = [];
+        foreach ($byDay as $d => $vals) $means[$d] = array_sum($vals) / count($vals);
+        return $means;
     }
 
     // Fyll indre datahull i en dato→døgnmiddel-serie: hver manglende dag mellom
