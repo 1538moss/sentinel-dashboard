@@ -10,7 +10,21 @@ Utvide kuldemengde-overlegget med et anslag på hvor mange **mm ny is** som ble 
 - `cloud_base_height` — skyhøyde
 - `cloud_type` — skytype
 
-**Ikke avklart ennå:** hvilken isvekst-formell som skal brukes (f.eks. Stefan-type gradfrost-formel vs. noe som også vekter skydekke/vind), om `api.met.no` sitt skydekke skal kombineres med det eksisterende Frost-lufttemperaturgrunnlaget eller stå som egen kilde, og hvordan/om dette skal vises i UI (egen etikettlinje? eget tall i grafmodalen?).
+**Ikke avklart ennå:** hvilken isvekst-formell som skal brukes (Stefan-type gradfrost-formel med kvadratrot av kuldemengden, ikke lineær — sjekket og forkastet en lineær variant 2026-07-23 — vs. noe som også vekter skydekke/vind), om `api.met.no` sitt skydekke skal kombineres med det eksisterende Frost-lufttemperaturgrunnlaget eller stå som egen kilde, og hvordan/om dette skal vises i UI (egen etikettlinje? eget tall i grafmodalen?). Bruker ser på en annen formel, kommer tilbake.
+
+**Referanse — dagens `km_needed`-terskler per sted** (fra `data/kuldemengde.json`/`config.php` sin `frost.locations`, °C·døgn for skøytbar is):
+
+| Sted | Stasjon | km_needed |
+|------|---------|-----------|
+| Lødengfjorden | SN17400 (FV120 Rødsund) | 23 |
+| Vanemfjorden | SN17400 (FV120 Rødsund) | 40 |
+| Rosfjorden | SN17400 (FV120 Rødsund) | 170 |
+| Borgebunn | SN17150 (Rygge) | 61 |
+| Amundbukta | SN17150 (Rygge) | 60 |
+| Vaskeberget | SN17150 (Rygge) | 35 |
+| Storefjorden | SN17150 (Rygge) | 120 |
+
+(`data/kuldemengde.json` er tom utenfor sesong — ingen faktisk akkumulert serie å referere til før sesongen 2026/2027 starter 1. oktober.)
 
 ---
 
