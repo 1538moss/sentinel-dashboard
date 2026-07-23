@@ -10,7 +10,7 @@ Utvide kuldemengde-overlegget med et anslag på hvor mange **mm ny is** som ble 
 - `cloud_base_height` — skyhøyde
 - `cloud_type` — skytype
 
-**Ikke avklart ennå:** hvilken isvekst-formell som skal brukes (Stefan-type gradfrost-formel med kvadratrot av kuldemengden, ikke lineær — sjekket og forkastet en lineær variant 2026-07-23 — vs. noe som også vekter skydekke/vind), om `api.met.no` sitt skydekke skal kombineres med det eksisterende Frost-lufttemperaturgrunnlaget eller stå som egen kilde, og hvordan/om dette skal vises i UI (egen etikettlinje? eget tall i grafmodalen?). Bruker ser på en annen formel, kommer tilbake.
+**Ikke avklart ennå:** hvilken isvekst-formel som skal brukes (Stefan-type gradfrost-formel med kvadratrot av kuldemengden, ikke lineær — sjekket og forkastet en lineær variant 2026-07-23 — vs. noe som også vekter skydekke/vind), om `api.met.no` sitt skydekke skal kombineres med det eksisterende Frost-lufttemperaturgrunnlaget eller stå som egen kilde, og hvordan/om dette skal vises i UI (egen etikettlinje? eget tall i grafmodalen?). Bruker ser på en annen formel, kommer tilbake.
 
 **Referanse — dagens `km_needed`-terskler per sted** (fra `data/kuldemengde.json`/`config.php` sin `frost.locations`, °C·døgn for skøytbar is):
 
