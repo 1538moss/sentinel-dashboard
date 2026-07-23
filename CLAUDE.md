@@ -30,6 +30,7 @@ En webløsning som automatisk henter daglige satellittbilder fra Sentinel-2 (ESA
 | `scripts/setup_ubuntu.sh` | Engangsoppsett av Ubuntu-server (Apache, PHP, vhost på port 8082) |
 | `data/images.json` | Metadata for alle bilder (dato, skydekke, filnavn, thumbnail, type) |
 | `data/kuldemengde.json` | Kuldemengde-serie per sted for inneværende sesong (skrives av fetch.php, leveres via `?action=list`) |
+| `data/isvekst.json` | Eksperimentell isvekst-serie (energibalansemodell) for Lødengfjorden, 1.okt-31.des (skrives av fetch.php, leveres via `?action=list`) |
 | `data/lake_overlay.svg` | SVG-kontur av Vansjø |
 | `images/` | PNG-satellittbilder (`YYYY-MM-DD.png`) |
 | `images/thumbs/` | JPEG-thumbnails 136×136px (`YYYY-MM-DD.jpg`) for tidslinje |
@@ -123,7 +124,8 @@ OAuth2-klient opprettes på: https://shapps.dataspace.copernicus.eu/dashboard/#/
 9. Når `landsat_enabled` er `true`: samme flyt for Landsat 8-9 via USGS M2M (se eget avsnitt under), uavhengig av S2/S1 — en feilende M2M-kobling logges og hopper over Landsat for hele kjøringen, uten å påvirke S2/S1
 9b. Når i tillegg `landsat_thermal_enabled` er `true`: rett etter et vellykket Landsat-bilde hentes samme scenes TIRS-bånd (ST_B10) og rutenett-overlegget genereres (se eget avsnitt under) — egen try/catch per dato, en feilende thermal-henting påvirker aldri det allerede lagrede Landsat-bildet
 10. Når `s3_lst_enabled` er `true`: uavhengig pipeline for Sentinel-3 LST (se eget avsnitt under) — påvirker aldri S2/S1/Landsat om noe feiler
-11. Når `kuldemengde_enabled` er `true`: uavhengig Frost-oppdatering av `data/kuldemengde.json` (se eget avsnitt under) — påvirker aldri bildepipelinene om noe feiler
+11. Når `kuldemengde_enabled` er `true`: uavhengig Frost-oppdatering av `data/kuldemengde.json` (se eget avsnitt under) — påvirker aldri bildepipelinene eller kuldemengde om noe feiler
+12. Når `isvekst_enabled` er `true`: uavhengig, eksperimentell Frost-basert isvekst-beregning for Lødengfjorden (se eget avsnitt under) — påvirker aldri bildepipelinene eller kuldemengde om noe feiler
 
 ---
 
@@ -228,6 +230,7 @@ Av/på-overlegg med **stedsbaserte etiketter** (ikke rutenett) — kuldemengde e
 | LST-overlegg | `🌡 °C`-knapp (kun synlig når `s3_lst_enabled`) slår av/på et rutenett med fargede temperaturtall (papirfarget bakgrunnsboks per tall + klokkeslett for målingen) oppå S2-bildet — fungerer i både Std- og Pro-modus (Pro-modus sitt "Optisk"-panel), tilstanden nullstilles ved sideinnlasting |
 | Landsat-termisk-overlegg | `🌡 Landsat`-knapp (kun synlig når `landsat_thermal_enabled` og `landsat_enabled`) slår av/på et tilsvarende, finere rutenett fra Landsat sin TIRS-sensor — kun oppå Landsat-bildet (Pro-panelet eller Std-modus sin Landsat-fallback), kun de dagene et Landsat-bilde finnes, tilstanden nullstilles ved sideinnlasting |
 | Kuldemengde-overlegg | `❄ Kulde`-knapp (rendres når `kuldemengde_enabled`, men vises av JS kun når sesongens serie har data) slår av/på stedsbaserte etiketter med akkumulert kuldemengde per slidedato — to linjer på hvit gjennomsiktig bakgrunn: «❄ Lødengfjorden» og «23/47,3» med store tall i statusfargen (grønn når terskelen `km_needed` er passert, oransje når ≤ 5 % av terskelen gjenstår, ellers rød) — plassert på stedets koordinat, skjules ved zoom, nullstilles ved sideinnlasting; klikk på etiketten åpner sesonggraf-modal (se kuldemengde-avsnittet) |
+| Isvekst-graf | `🧊 Isvekst`-knapp (rendres når `isvekst_enabled`, vises av JS kun når serien har data) åpner en modal med en kumulativ mm-graf (1.okt-31.des) pluss en daglig vekst/smelte-strip — eksperimentell, kun Lødengfjorden i v1, se eget avsnitt |
 | Mobil | Forenklet header under 640px |
 
 ### Tastaturnavigasjon
@@ -287,6 +290,18 @@ Registrert i `www-data` sin crontab (`sudo crontab -u www-data -e`), slik at bil
 Stdout kastes fordi `log()` i `fetch.php` allerede skriver hver linje til `fetch.log` selv (echo + `>>` ville gitt doble linjer); stderr appendes fortsatt slik at PHP-fatals/warnings utenom `log()` havner i loggen.
 
 Kjører kl. 00, 06, 12, 18. Trygt å kjøre oftere enn én gang daglig — `fetch.php` hopper over datoer som allerede er lastet ned (skip-liste basert på fil-på-disk), så hyppigere kjøring fanger bare opp nye S2/S1/Landsat/S3-scener raskere.
+
+---
+
+## Isvekst (energibalansemodell) — bak `isvekst_enabled`-flagget
+
+Eksperimentell v1: et anslag på beregnet istykkelse (mm) for **kun Lødengfjorden**, **kun vinduet 1. oktober–31. desember** (ikke hele okt–mai-sesongen som kuldemengde) — bevisst begrenset omfang inntil resultatene er evaluert over en reell sesong. Formelen er en full energibalansemodell fra svensk isfartslitteratur (`.claude/skills/isprognosemodell_skill/isprognosemodell_skill.md`, *Islära*): varmetransport (W/m²) fra sol, utstråling, motstrålning, vind, varmeledning og avdunstning, konvertert til mm istilvekst/time via en empirisk konstant. Full utledning og datakilde-antakelser i `docs/superpowers/specs/2026-07-23-isvekst-lodeng-design.md`.
+
+**Datakilder (alt fra Frost, samme mønster som kuldemengde):** lufttemperatur og duggpunkt (→ luftfuktighet via Magnus-formel) fra Lødengs egen stasjon SN17400, vind som døgnsnitt av rå 10-minutters observasjoner (SN17400 har intet ferdig døgnsnitt for vind), skydekke lånt fra **SN17150** (Rygge) siden SN17400 ikke måler det. Disse er bevisste tilnærmelser, ikke optimale — verdt å revurdere etter at modellen har kjørt en reell sesong.
+
+**`updateIsvekst()`** i `fetch.php` regner ut og skriver hele 1.okt–31.des-vinduet på nytt ved hver kjøring (idempotent, billig siden alle inputs er døgnaggregater eller lette snitt), lagres i `data/isvekst.json`. Akkumulert istykkelse klemmes til aldri under 0, samme prinsipp som kuldemengde. CLI: `php fetch.php --isvekst=YYYY-MM-DD`.
+
+**Ingen retroaktiv backfill utover det som allerede er implementert**: siden hele vinduet regnes på nytt hver gang (i motsetning til Landsat-termisk sin filnavn-baserte skip-logikk), får en sesong automatisk fullt historikk fra 1. oktober så snart flagget slås på og cron kjører — det er ikke noe eget backfill-steg å tenke på her.
 
 ---
 

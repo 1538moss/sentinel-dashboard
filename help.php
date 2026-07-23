@@ -328,6 +328,22 @@ kbd{
       bakken (samme som YR.no), fra nærmeste målestasjon (FV120 Rødsund ved Rødsundbrua for
       Lødengfjorden, Rygge for de øvrige stedene) — ikke satellittmålt overflatetemperatur.
     </div>
+    <div class="row">
+      <div class="key">🧊 Isvekst</div>
+      <div class="desc">
+        Eksperimentell — vises kun bak et eget flagg, foreløpig kun for Lødengfjorden. Et anslag
+        på hvor tykk isen har blitt siden 1.&nbsp;oktober, beregnet med en energibalansemodell
+        (sol, utstråling, motstråling, vind, varmeledning og avdunstning — fra svensk
+        isfartslitteratur) i stedet for bare en temperatursum. Klikk <kbd>🧊&nbsp;Isvekst</kbd>-knappen
+        i headeren for å åpne en graf over beregnet istykkelse (mm) fra 1.&nbsp;oktober til
+        31.&nbsp;desember, med en daglig vekst-/smeltestripe under grafen.
+      </div>
+    </div>
+    <div class="note">
+      Skydekke i modellen er lånt fra Rygge-stasjonen (Lødengs egen målestasjon måler det ikke),
+      luftfuktighet er utledet fra duggpunkt, og vind er et døgnsnitt av rå observasjoner —
+      tallene er derfor et <strong>anslag</strong>, ikke en presis måling.
+    </div>
   </section>
 
   <section>
