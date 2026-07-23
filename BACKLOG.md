@@ -1,5 +1,33 @@
 # Backlog
 
+## Isvekst (energibalansemodell) — Lødengfjorden (implementert, verifisert mot ekte data — venter på vintersesong før prod-rollout)
+
+Eksperimentelt anslag på beregnet istykkelse (mm) siden 1. oktober, bak `isvekst_enabled`-flagget (default `false`). Kun **Lødengfjorden**, kun vinduet **1. oktober–31. desember** i v1 — bevisst begrenset omfang inntil modellen er evaluert over en reell sesong. Formelen er en full energibalansemodell fra svensk isfartslitteratur (*Islära*), dokumentert i `.claude/skills/isprognosemodell_skill/` og en tilhørende portabel referanse i `.claude/skills/ice-growth-model/` (begge gitignoret, ikke i repoet).
+
+**Status:** All kode implementert og code-review-godkjent gjennom subagent-drevet utvikling (spec → plan → 8 oppgaver, hver med egen implementerings- og reviewrunde, pluss en sluttgjennomgang av hele branchen). Merget til `main` og pushet 2026-07-23. `isvekst_enabled` er `false` i produksjons-config — ingen endring i faktisk oppførsel før flagget slås på manuelt.
+
+**Implementert:**
+1. `config.php`: `isvekst_enabled`-flagg + `isvekst`-blokk (`data_file`, `window_start: '10-01'`, `window_end: '12-31'`, `cloud_station: 'SN17150'`). Lødengfjorden-oppføringen i `frost.locations` merket med `isvekst: true`.
+2. `fetch.php`: full formelmotor (fire tabelloppslag + lineær interpolasjon, `computeIsvekstGrowthMm()` — offentlig, verifisert mot skillets eksempel-beregning), Frost-hjelpere (`fetchFrostDailyMeans()` utvidet med valgfritt `$element`-parameter, ny `fetchFrostRawDailyAverage()` for rå vind-snitt), `isvekstWindowFor()`/`updateIsvekst()`-orkestrering som skriver `data/isvekst.json`, CLI-flagg `--isvekst=YYYY-MM-DD`, gated blokk i `_run()` med egen try/catch (påvirker aldri bildepipelinene eller kuldemengde).
+3. `api.php`: `isvekst`-nøkkel på `?action=list`, samme mønster som `kuldemengde`.
+4. `index.php`: `🧊 Isvekst`-knapp (skjult til data finnes), isolert `openIsvekstChart()`-modal med kumulativ mm-graf + daglig vekst/smelte-strip — bevisst **ikke** en refaktorering av `openKmChart()`, for å holde eksperimentet trivielt å fjerne.
+5. `help.php`, `CLAUDE.md` — begge oppdatert med eget avsnitt.
+
+**Datakilde-tilnærminger** (dokumentert i spec, verdt å revurdere etter en reell sesong): skydekke lånt fra Rygge-stasjonen (Lødengs egen stasjon måler det ikke), luftfuktighet utledet fra duggpunkt via Magnus-formel, vind som døgnsnitt av rå 10-minutters observasjoner (ingen ferdig døgnsnitt-element for vind på Lødengs stasjon).
+
+**Fullstendig verifisert:**
+- Formelmotor verifisert mot skillets worked example (1. desember, 60°N, −5°C, helskyet, 4 m/s, 85%) → ≈0,8 mm/t.
+- `updateIsvekst()` kjørt mot ekte Frost-data for 1.okt–31.des 2025 (helt i fortiden, «fake dato»-triks): 179,7mm akkumulert is 31. desember og 145,1mm ved midt-november-toppen — matcher en uavhengig manuell spike-kjøring (179,5mm / 144,9mm) innenfor noen tideler av en mm. Idempotent (identiske tall ved gjentatt kjøring).
+- Frontend visuelt bekreftet i ekte nettleser (Playwright): knapp vises, modal åpner med korrekt graf og tooltip, alle tre lukkemekanismer fungerer, ingen overflow på mobilbredde.
+- Sluttgjennomgang av hele branchen: «Ready to merge: Yes», ingen kritiske eller viktige funn.
+
+**Gjenstående steg:**
+1. Vent til vintersesongen 2026/2027 starter (1. oktober) og bekreft at Lødengs stasjon (SN17400) faktisk leverer fersk duggpunkt-/temperatur-/vinddata i sanntid — kun historiske 2025-data er verifisert så langt, siden dagens dato ligger midt i sommeren. (SN17400 sine avledede P1D-produkter viste ~30 dagers forsinkelse i sommertesting — trolig fordi stasjonen normalt kun spørres i kuldemengde-sesongen; ukjent om dette gjelder også vinterstid.)
+2. Se an resultatene en sesong før eventuell utvidelse til flere steder eller hele okt–mai-vinduet.
+3. Sett `isvekst_enabled => true` i produksjons-config når (1) er bekreftet.
+
+---
+
 ## Landsat termisk overlegg — TIRS ST_B10 (implementert, verifisert lokalt — klar for prod-rollout)
 
 Rutenett med fargede temperaturtall fra Landsat sin egen varmesensor (TIRS), samme visuelle idé som Sentinel-3 LST-overlegget men vist oppå Landsat-bildet i stedet for S2, bak `landsat_thermal_enabled`-flagget (default `false`). Siden `ST_B10` kommer fra nøyaktig samme USGS-scene/`entityId` som RGB-Landsat-bildet (ikke et eget katalogsøk), lagres resultatet som `thermal_filename`/`thermal_thumbnail`-felt **på den eksisterende Landsat-metadataoppføringen**, ikke som en egen `sensor`/`type`-entry slik S3 er modellert.

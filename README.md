@@ -18,6 +18,7 @@ Interaktivt fullskjerm-dashboard som automatisk henter og viser daglige satellit
 | LST-overlegg | Av/på-rutenett med landoverflatetemperatur (Sentinel-3 SLSTR) oppå S2-bildet — bak `s3_lst_enabled` |
 | Landsat-termisk-overlegg | Tilsvarende, finere rutenett fra Landsat sin TIRS-sensor oppå Landsat-bildet — bak `landsat_thermal_enabled` |
 | Kuldemengde-overlegg | Stedsbaserte etiketter med akkumulert kuldemengde (MET Frost API) for vurdering av skøytbar is, med sesonggraf ved klikk — bak `kuldemengde_enabled` |
+| Isvekst-graf | Eksperimentelt anslag på beregnet istykkelse (mm) for Lødengfjorden via energibalansemodell, med kumulativ graf ved klikk — bak `isvekst_enabled`, kun 1.okt–31.des i v1 |
 | Tidslinje | JPEG-thumbnails (136×136) med badges per sensor |
 | Automatisk henting | Cron hver 6. time henter nye bilder fra Copernicus/USGS/MET |
 | Fetch-logg | Alle kjøringer logges til `data/fetch.log` med tidsstempel og filnavn |
